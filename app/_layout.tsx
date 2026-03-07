@@ -13,6 +13,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
+import { AuthProvider } from "@/context/AuthContext";
 import { AppProvider } from "@/context/AppContext";
 import { PinLockOverlay } from "@/components/PinLockOverlay";
 import { useColorScheme } from "react-native";
@@ -58,6 +59,36 @@ function RootLayoutNav() {
           headerShown: false,
         }}
       />
+      <Stack.Screen
+        name="auth"
+        options={{
+          presentation: "modal",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="account"
+        options={{
+          presentation: "modal",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="create-book"
+        options={{
+          presentation: "formSheet",
+          headerShown: false,
+          sheetAllowedDetents: [0.85, 1.0],
+          sheetGrabberVisible: true,
+        }}
+      />
+      <Stack.Screen
+        name="book-members"
+        options={{
+          presentation: "modal",
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 }
@@ -83,10 +114,12 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <KeyboardProvider>
-            <AppProvider>
-              <RootLayoutNav />
-              <PinLockOverlay />
-            </AppProvider>
+            <AuthProvider>
+              <AppProvider>
+                <RootLayoutNav />
+                <PinLockOverlay />
+              </AppProvider>
+            </AuthProvider>
           </KeyboardProvider>
         </GestureHandlerRootView>
       </QueryClientProvider>

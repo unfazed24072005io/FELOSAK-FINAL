@@ -26,7 +26,22 @@ export default function AnalyticsScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const { transactions, totalIncome, totalExpense, totalBalance } = useApp();
+  const { transactions, totalIncome, totalExpense, totalBalance, activeBook } = useApp();
+
+  if (!activeBook) {
+    const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>Analytics</Text>
+        </View>
+        <View style={styles.emptyContent}>
+          <Feather name="book-open" size={44} color={theme.textSecondary} />
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Select a book from Overview to see analytics</Text>
+        </View>
+      </View>
+    );
+  }
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);

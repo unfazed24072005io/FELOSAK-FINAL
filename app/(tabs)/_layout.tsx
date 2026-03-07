@@ -10,8 +10,8 @@ function NativeTabLayout() {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Overview</Label>
+        <Icon sf={{ default: "book", selected: "book.fill" }} />
+        <Label>Books</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="transactions">
         <Icon sf={{ default: "list.bullet", selected: "list.bullet" }} />
@@ -69,10 +69,10 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Overview",
+          title: "Books",
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
-            return <Feather name="home" size={size} color={color} />;
+            return <Feather name="book-open" size={size} color={color} />;
           },
         }}
       />

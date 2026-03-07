@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from "react";
 import {
+  Alert,
   FlatList,
   Platform,
   Pressable,
@@ -13,16 +14,272 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useApp } from "@/context/AppContext";
+import { useApp, CashBook } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import Colors from "@/constants/colors";
 import { formatEGP, formatEGPShort, formatDateShort } from "@/utils/format";
 
-export default function DashboardScreen() {
+export default function OverviewScreen() {
+  const { activeBook } = useApp();
+
+  if (activeBook) {
+    return <BookDashboard />;
+  }
+  return <BooksListView />;
+}
+
+function BooksListView() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const { totalBalance, totalIncome, totalExpense, transactions } = useApp();
+  const { books, setActiveBook, deleteBook } = useApp();
+  const { user } = useAuth();
+
+  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  const handleDeleteBook = useCallback(
+    (book: CashBook) => {
+      if (book.role !== "owner") {
+        Alert.alert("Cannot Delete", "Only the owner can delete this book.");
+        return;
+      }
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      Alert.alert(
+        "Delete Book",
+        `Delete "${book.name}" and all its data? This cannot be undone.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => deleteBook(book.id),
+          },
+        ]
+      );
+    },
+    [deleteBook]
+  );
+
+  const handleOpenBook = useCallback(
+    (book: CashBook) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setActiveBook(book);
+    },
+    [setActiveBook]
+  );
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingTop: topPad + 16, paddingBottom: bottomPad + 100 },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.headerRow}>
+          <View>
+            <Text
+              style={[styles.greeting, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
+            >
+              Misr Cash Book
+            </Text>
+            <Text
+              style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}
+            >
+              My Books
+            </Text>
+          </View>
+          <View style={styles.headerBtns}>
+            {!user && (
+              <Pressable
+                onPress={() => router.push("/auth")}
+                accessibilityLabel="Sign in"
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.headerBtn,
+                  {
+                    backgroundColor: theme.tint,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Feather name="cloud" size={16} color="#FFF" />
+              </Pressable>
+            )}
+            {user && (
+              <Pressable
+                onPress={() => router.push("/account")}
+                accessibilityLabel="Account"
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.headerBtn,
+                  {
+                    backgroundColor: theme.tint,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Feather name="user" size={16} color="#FFF" />
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => router.push("/settings")}
+              accessibilityLabel="Settings"
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.settingsBtn,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.6 : 1,
+                },
+              ]}
+            >
+              <Feather name="settings" size={18} color={theme.textSecondary} />
+            </Pressable>
+          </View>
+        </View>
+
+        {user && (
+          <View style={[styles.userBanner, { backgroundColor: theme.tint + "18", borderColor: theme.tint + "44" }]}>
+            <Feather name="user" size={14} color={theme.tint} />
+            <Text style={[styles.userText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
+              Signed in as {user.displayName}
+            </Text>
+          </View>
+        )}
+
+        {books.length === 0 ? (
+          <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Feather name="book-open" size={32} color={theme.textSecondary} />
+            <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              No books yet.{"\n"}Create your first cash book to get started.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.booksGrid}>
+            {books.map((book) => (
+              <BookCard
+                key={book.id}
+                book={book}
+                theme={theme}
+                onPress={() => handleOpenBook(book)}
+                onLongPress={() => handleDeleteBook(book)}
+              />
+            ))}
+          </View>
+        )}
+      </ScrollView>
+
+      <Pressable
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          router.push("/create-book");
+        }}
+        accessibilityLabel="Create new book"
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.fab,
+          {
+            backgroundColor: theme.tint,
+            bottom: bottomPad + 80,
+            shadowColor: theme.tint,
+            transform: [{ scale: pressed ? 0.93 : 1 }],
+          },
+        ]}
+      >
+        <Feather name="plus" size={24} color="#FFFFFF" />
+      </Pressable>
+    </View>
+  );
+}
+
+function BookCard({
+  book,
+  theme,
+  onPress,
+  onLongPress,
+}: {
+  book: CashBook;
+  theme: typeof Colors.dark;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={({ pressed }) => [
+        styles.bookCard,
+        {
+          backgroundColor: theme.card,
+          borderColor: theme.border,
+          opacity: pressed ? 0.8 : 1,
+        },
+      ]}
+      testID={`book-${book.id}`}
+    >
+      <View style={styles.bookCardTop}>
+        <View style={[styles.bookIcon, { backgroundColor: theme.tint + "22" }]}>
+          <Feather
+            name={book.isCloud ? "cloud" : "book"}
+            size={20}
+            color={theme.tint}
+          />
+        </View>
+        <View
+          style={[
+            styles.bookBadge,
+            { backgroundColor: book.isCloud ? theme.income + "22" : theme.surface },
+          ]}
+        >
+          <Text
+            style={[
+              styles.bookBadgeText,
+              {
+                color: book.isCloud ? theme.income : theme.textSecondary,
+                fontFamily: "Inter_500Medium",
+              },
+            ]}
+          >
+            {book.isCloud ? "Cloud" : "Local"}
+          </Text>
+        </View>
+      </View>
+      <Text
+        style={[styles.bookName, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
+        numberOfLines={1}
+      >
+        {book.name}
+      </Text>
+      {book.description ? (
+        <Text
+          style={[styles.bookDesc, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
+          numberOfLines={2}
+        >
+          {book.description}
+        </Text>
+      ) : null}
+      <View style={styles.bookFooter}>
+        <Text style={[styles.bookRole, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+          {book.role}
+        </Text>
+        <Feather name="chevron-right" size={14} color={theme.textSecondary} />
+      </View>
+    </Pressable>
+  );
+}
+
+function BookDashboard() {
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme !== "light";
+  const theme = isDark ? Colors.dark : Colors.light;
+  const { activeBook, setActiveBook, totalBalance, totalIncome, totalExpense, transactions } =
+    useApp();
 
   const recent = useMemo(() => transactions.slice(0, 8), [transactions]);
 
@@ -34,6 +291,8 @@ export default function DashboardScreen() {
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
+  if (!activeBook) return null;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView
@@ -43,44 +302,72 @@ export default function DashboardScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
         <View style={styles.headerRow}>
-          <View>
-            <Text
-              style={[
-                styles.greeting,
-                { color: theme.textSecondary, fontFamily: "Inter_400Regular" },
-              ]}
+          <View style={{ flex: 1 }}>
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setActiveBook(null);
+              }}
+              style={styles.backRow}
+              accessibilityLabel="Back to books"
+              accessibilityRole="button"
             >
-              Misr Cash Book
-            </Text>
+              <Feather name="chevron-left" size={16} color={theme.tint} />
+              <Text style={[styles.backText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
+                Books
+              </Text>
+            </Pressable>
             <Text
-              style={[
-                styles.headerTitle,
-                { color: theme.text, fontFamily: "Inter_700Bold" },
-              ]}
+              style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}
+              numberOfLines={1}
             >
-              Overview
+              {activeBook.name}
             </Text>
           </View>
-          <Pressable
-            onPress={() => router.push("/settings")}
-            accessibilityLabel="Settings"
-            accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.settingsBtn,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                opacity: pressed ? 0.6 : 1,
-              },
-            ]}
-          >
-            <Feather name="settings" size={18} color={theme.textSecondary} />
-          </Pressable>
+          <View style={styles.headerBtns}>
+            {activeBook.isCloud && (
+              <Pressable
+                onPress={() => router.push({ pathname: "/book-members", params: { bookId: activeBook.id } })}
+                accessibilityLabel="Members"
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.settingsBtn,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: theme.border,
+                    opacity: pressed ? 0.6 : 1,
+                  },
+                ]}
+              >
+                <Feather name="users" size={18} color={theme.textSecondary} />
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => router.push("/settings")}
+              accessibilityLabel="Settings"
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.settingsBtn,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.6 : 1,
+                },
+              ]}
+            >
+              <Feather name="settings" size={18} color={theme.textSecondary} />
+            </Pressable>
+          </View>
         </View>
 
-        {/* Balance Card */}
+        <View style={[styles.bookTypeBadge, { backgroundColor: activeBook.isCloud ? theme.income + "18" : theme.surface }]}>
+          <Feather name={activeBook.isCloud ? "cloud" : "book"} size={12} color={activeBook.isCloud ? theme.income : theme.textSecondary} />
+          <Text style={[styles.bookTypeText, { color: activeBook.isCloud ? theme.income : theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+            {activeBook.isCloud ? "Cloud Book" : "Local Book"}
+          </Text>
+        </View>
+
         <View
           style={[
             styles.balanceCard,
@@ -138,7 +425,6 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* Quick Actions */}
         <View style={styles.actionsRow}>
           <QuickAction
             icon="arrow-up-circle"
@@ -175,22 +461,15 @@ export default function DashboardScreen() {
           />
         </View>
 
-        {/* Recent Transactions */}
         <View style={styles.sectionHeader}>
           <Text
-            style={[
-              styles.sectionTitle,
-              { color: theme.text, fontFamily: "Inter_600SemiBold" },
-            ]}
+            style={[styles.sectionTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
           >
             Recent Transactions
           </Text>
           <Pressable onPress={() => router.push("/transactions" as any)}>
             <Text
-              style={[
-                styles.seeAll,
-                { color: theme.tint, fontFamily: "Inter_500Medium" },
-              ]}
+              style={[styles.seeAll, { color: theme.tint, fontFamily: "Inter_500Medium" }]}
             >
               See all
             </Text>
@@ -218,7 +497,6 @@ export default function DashboardScreen() {
         )}
       </ScrollView>
 
-      {/* FAB */}
       <Pressable
         onPress={handleAdd}
         accessibilityLabel="Add transaction"
@@ -270,10 +548,7 @@ function QuickAction({
         <Feather name={icon as any} size={20} color={color} />
       </View>
       <Text
-        style={[
-          styles.quickLabel,
-          { color: theme.text, fontFamily: "Inter_500Medium" },
-        ]}
+        style={[styles.quickLabel, { color: theme.text, fontFamily: "Inter_500Medium" }]}
         numberOfLines={1}
       >
         {label}
@@ -353,7 +628,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 24,
+    marginBottom: 16,
+  },
+  headerBtns: { flexDirection: "row", gap: 8 },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   greeting: { fontSize: 13, marginBottom: 2 },
   headerTitle: { fontSize: 28 },
@@ -365,6 +648,69 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  userBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  userText: { fontSize: 13 },
+  backRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    marginBottom: 4,
+  },
+  backText: { fontSize: 14 },
+  bookTypeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  bookTypeText: { fontSize: 12 },
+  booksGrid: { gap: 12 },
+  bookCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+    gap: 8,
+  },
+  bookCardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  bookIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bookBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  bookBadgeText: { fontSize: 11 },
+  bookName: { fontSize: 17, marginTop: 4 },
+  bookDesc: { fontSize: 13, lineHeight: 19 },
+  bookFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 4,
+  },
+  bookRole: { fontSize: 12, textTransform: "capitalize" },
   balanceCard: {
     borderRadius: 24,
     padding: 24,

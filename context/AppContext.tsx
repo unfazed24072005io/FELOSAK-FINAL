@@ -5,8 +5,12 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import { useAuth } from "./AuthContext";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { fetch } from "expo/fetch";
 
 export type TransactionType = "income" | "expense";
 
@@ -31,7 +35,22 @@ export interface Debt {
   createdAt: number;
 }
 
+export interface CashBook {
+  id: string;
+  name: string;
+  description: string;
+  isCloud: boolean;
+  role: string;
+  createdAt: number;
+}
+
 interface AppContextValue {
+  books: CashBook[];
+  activeBook: CashBook | null;
+  setActiveBook: (book: CashBook | null) => void;
+  createBook: (name: string, description: string, isCloud: boolean) => Promise<void>;
+  deleteBook: (id: string) => Promise<void>;
+  updateBook: (id: string, data: { name?: string; description?: string }) => Promise<void>;
   transactions: Transaction[];
   debts: Debt[];
   pin: string | null;
@@ -48,118 +67,470 @@ interface AppContextValue {
   totalBalance: number;
   totalIncome: number;
   totalExpense: number;
+  refreshBooks: () => Promise<void>;
+  isLoadingBooks: boolean;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-const TRANSACTIONS_KEY = "misr_transactions";
-const DEBTS_KEY = "misr_debts";
+const BOOKS_KEY = "misr_books";
 const PIN_KEY = "misr_pin";
+const LEGACY_TX_KEY = "misr_transactions";
+const LEGACY_DEBTS_KEY = "misr_debts";
 
 function genId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 9);
 }
 
+function txKey(bookId: string) {
+  return `misr_tx_${bookId}`;
+}
+function debtsKey(bookId: string) {
+  return `misr_debts_${bookId}`;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const [localBooks, setLocalBooks] = useState<CashBook[]>([]);
+  const [cloudBooks, setCloudBooks] = useState<CashBook[]>([]);
+  const [activeBook, setActiveBookState] = useState<CashBook | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [pin, setPinState] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
+  const [isLoadingBooks, setIsLoadingBooks] = useState(true);
+  const loadVersionRef = useRef(0);
+
+  useEffect(() => {
+    if (!user) {
+      setCloudBooks([]);
+      if (activeBook?.isCloud) {
+        setActiveBookState(null);
+        setTransactions([]);
+        setDebts([]);
+      }
+    }
+  }, [user]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [txRaw, debtsRaw, pinRaw] = await Promise.all([
-          AsyncStorage.getItem(TRANSACTIONS_KEY),
-          AsyncStorage.getItem(DEBTS_KEY),
+        const [booksRaw, pinRaw, legacyTx, legacyDebts] = await Promise.all([
+          AsyncStorage.getItem(BOOKS_KEY),
           AsyncStorage.getItem(PIN_KEY),
+          AsyncStorage.getItem(LEGACY_TX_KEY),
+          AsyncStorage.getItem(LEGACY_DEBTS_KEY),
         ]);
-        if (txRaw) setTransactions(JSON.parse(txRaw));
-        if (debtsRaw) setDebts(JSON.parse(debtsRaw));
+
         if (pinRaw) {
           setPinState(pinRaw);
           setIsLocked(true);
         }
+
+        let parsedBooks: CashBook[] = booksRaw ? JSON.parse(booksRaw) : [];
+
+        if (parsedBooks.length === 0) {
+          const defaultBook: CashBook = {
+            id: genId(),
+            name: "My Cash Book",
+            description: "Default cash book",
+            isCloud: false,
+            role: "owner",
+            createdAt: Date.now(),
+          };
+          parsedBooks = [defaultBook];
+          await AsyncStorage.setItem(BOOKS_KEY, JSON.stringify(parsedBooks));
+
+          if (legacyTx) {
+            await AsyncStorage.setItem(txKey(defaultBook.id), legacyTx);
+          }
+          if (legacyDebts) {
+            await AsyncStorage.setItem(debtsKey(defaultBook.id), legacyDebts);
+          }
+        }
+
+        setLocalBooks(parsedBooks);
+        setIsLoadingBooks(false);
       } catch (e) {
         console.error("Failed to load data", e);
+        setIsLoadingBooks(false);
       }
     })();
   }, []);
 
-  const saveTransactions = useCallback(async (txs: Transaction[]) => {
-    await AsyncStorage.setItem(TRANSACTIONS_KEY, JSON.stringify(txs));
+  const fetchCloudBooks = useCallback(async () => {
+    if (!user) {
+      setCloudBooks([]);
+      return;
+    }
+    try {
+      const baseUrl = getApiUrl();
+      const url = new URL("/api/books", baseUrl);
+      const res = await fetch(url.toString(), { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        const mapped: CashBook[] = data.map((b: any) => ({
+          id: b.id,
+          name: b.name,
+          description: b.description || "",
+          isCloud: true,
+          role: b.role,
+          createdAt: new Date(b.createdAt).getTime(),
+        }));
+        setCloudBooks(mapped);
+      }
+    } catch (_e) {
+      console.error("Failed to fetch cloud books");
+    }
+  }, [user]);
+
+  useEffect(() => {
+    fetchCloudBooks();
+  }, [fetchCloudBooks]);
+
+  const books = useMemo(
+    () => [...localBooks, ...cloudBooks].sort((a, b) => b.createdAt - a.createdAt),
+    [localBooks, cloudBooks]
+  );
+
+  const refreshBooks = useCallback(async () => {
+    await fetchCloudBooks();
+    const raw = await AsyncStorage.getItem(BOOKS_KEY);
+    if (raw) setLocalBooks(JSON.parse(raw));
+  }, [fetchCloudBooks]);
+
+  const loadBookData = useCallback(async (book: CashBook, version: number) => {
+    if (book.isCloud) {
+      try {
+        const baseUrl = getApiUrl();
+        const txUrl = new URL(`/api/books/${book.id}/transactions`, baseUrl);
+        const debtsUrl = new URL(`/api/books/${book.id}/debts`, baseUrl);
+        const [txRes, debtsRes] = await Promise.all([
+          fetch(txUrl.toString(), { credentials: "include" }),
+          fetch(debtsUrl.toString(), { credentials: "include" }),
+        ]);
+        if (loadVersionRef.current !== version) return;
+        if (txRes.ok) {
+          const txData = await txRes.json();
+          setTransactions(
+            txData.map((t: any) => ({
+              id: t.id,
+              type: t.type,
+              amount: parseFloat(t.amount),
+              category: t.category,
+              note: t.note || "",
+              date: t.date,
+              createdAt: new Date(t.createdAt).getTime(),
+            }))
+          );
+        }
+        if (debtsRes.ok) {
+          const debtsData = await debtsRes.json();
+          setDebts(
+            debtsData.map((d: any) => ({
+              id: d.id,
+              direction: d.direction,
+              name: d.name,
+              amount: parseFloat(d.amount),
+              note: d.note || "",
+              dueDate: d.dueDate || "",
+              settled: d.settled,
+              createdAt: new Date(d.createdAt).getTime(),
+            }))
+          );
+        }
+      } catch (_e) {
+        console.error("Failed to load cloud book data");
+      }
+    } else {
+      const [txRaw, debtsRaw] = await Promise.all([
+        AsyncStorage.getItem(txKey(book.id)),
+        AsyncStorage.getItem(debtsKey(book.id)),
+      ]);
+      if (loadVersionRef.current !== version) return;
+      setTransactions(txRaw ? JSON.parse(txRaw) : []);
+      setDebts(debtsRaw ? JSON.parse(debtsRaw) : []);
+    }
   }, []);
 
-  const saveDebts = useCallback(async (ds: Debt[]) => {
-    await AsyncStorage.setItem(DEBTS_KEY, JSON.stringify(ds));
+  const setActiveBook = useCallback(
+    (book: CashBook | null) => {
+      const version = ++loadVersionRef.current;
+      setActiveBookState(book);
+      setTransactions([]);
+      setDebts([]);
+      if (book) {
+        loadBookData(book, version);
+      }
+    },
+    [loadBookData]
+  );
+
+  const saveLocalBooks = useCallback(async (updated: CashBook[]) => {
+    setLocalBooks(updated);
+    await AsyncStorage.setItem(BOOKS_KEY, JSON.stringify(updated));
   }, []);
+
+  const createBook = useCallback(
+    async (name: string, description: string, isCloud: boolean) => {
+      if (isCloud && user) {
+        const res = await apiRequest("POST", "/api/books", { name, description });
+        const data = await res.json();
+        await fetchCloudBooks();
+        setActiveBook({
+          id: data.id,
+          name: data.name,
+          description: data.description || "",
+          isCloud: true,
+          role: "owner",
+          createdAt: Date.now(),
+        });
+      } else {
+        const newBook: CashBook = {
+          id: genId(),
+          name,
+          description,
+          isCloud: false,
+          role: "owner",
+          createdAt: Date.now(),
+        };
+        const updated = [newBook, ...localBooks];
+        await saveLocalBooks(updated);
+        setActiveBook(newBook);
+      }
+    },
+    [user, localBooks, saveLocalBooks, fetchCloudBooks, setActiveBook]
+  );
+
+  const deleteBook = useCallback(
+    async (id: string) => {
+      const book = books.find((b) => b.id === id);
+      if (!book) return;
+      if (book.isCloud) {
+        await apiRequest("DELETE", `/api/books/${id}`);
+        await fetchCloudBooks();
+      } else {
+        const updated = localBooks.filter((b) => b.id !== id);
+        await saveLocalBooks(updated);
+        await AsyncStorage.removeItem(txKey(id));
+        await AsyncStorage.removeItem(debtsKey(id));
+      }
+      if (activeBook?.id === id) {
+        setActiveBook(null);
+      }
+    },
+    [books, localBooks, saveLocalBooks, fetchCloudBooks, activeBook, setActiveBook]
+  );
+
+  const updateBookMeta = useCallback(
+    async (id: string, data: { name?: string; description?: string }) => {
+      const book = books.find((b) => b.id === id);
+      if (!book) return;
+      if (book.isCloud) {
+        await apiRequest("PUT", `/api/books/${id}`, data);
+        await fetchCloudBooks();
+      } else {
+        const updated = localBooks.map((b) =>
+          b.id === id ? { ...b, ...data } : b
+        );
+        await saveLocalBooks(updated);
+      }
+      if (activeBook?.id === id) {
+        setActiveBookState((prev) => (prev ? { ...prev, ...data } : prev));
+      }
+    },
+    [books, localBooks, saveLocalBooks, fetchCloudBooks, activeBook]
+  );
+
+  const saveTransactions = useCallback(
+    async (txs: Transaction[]) => {
+      if (!activeBook) return;
+      if (!activeBook.isCloud) {
+        await AsyncStorage.setItem(txKey(activeBook.id), JSON.stringify(txs));
+      }
+    },
+    [activeBook]
+  );
+
+  const saveDebts = useCallback(
+    async (ds: Debt[]) => {
+      if (!activeBook) return;
+      if (!activeBook.isCloud) {
+        await AsyncStorage.setItem(debtsKey(activeBook.id), JSON.stringify(ds));
+      }
+    },
+    [activeBook]
+  );
 
   const addTransaction = useCallback(
     (t: Omit<Transaction, "id" | "createdAt">) => {
-      setTransactions((prev) => {
-        const next = [{ ...t, id: genId(), createdAt: Date.now() }, ...prev];
-        saveTransactions(next);
-        return next;
-      });
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            const res = await apiRequest("POST", `/api/books/${bookId}/transactions`, t);
+            const data = await res.json();
+            const mapped: Transaction = {
+              id: data.id,
+              type: data.type,
+              amount: parseFloat(data.amount),
+              category: data.category,
+              note: data.note || "",
+              date: data.date,
+              createdAt: new Date(data.createdAt).getTime(),
+            };
+            setTransactions((prev) => [mapped, ...prev]);
+          } catch (e) {
+            console.error("Failed to add cloud transaction", e);
+          }
+        })();
+      } else {
+        setTransactions((prev) => {
+          const next = [{ ...t, id: genId(), createdAt: Date.now() }, ...prev];
+          saveTransactions(next);
+          return next;
+        });
+      }
     },
-    [saveTransactions]
+    [activeBook, saveTransactions]
   );
 
   const updateTransaction = useCallback(
     (id: string, t: Partial<Transaction>) => {
-      setTransactions((prev) => {
-        const next = prev.map((tx) => (tx.id === id ? { ...tx, ...t } : tx));
-        saveTransactions(next);
-        return next;
-      });
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            await apiRequest("PUT", `/api/books/${bookId}/transactions/${id}`, t);
+            setTransactions((prev) =>
+              prev.map((tx) => (tx.id === id ? { ...tx, ...t } : tx))
+            );
+          } catch (e) {
+            console.error("Failed to update cloud transaction", e);
+          }
+        })();
+      } else {
+        setTransactions((prev) => {
+          const next = prev.map((tx) => (tx.id === id ? { ...tx, ...t } : tx));
+          saveTransactions(next);
+          return next;
+        });
+      }
     },
-    [saveTransactions]
+    [activeBook, saveTransactions]
   );
 
   const deleteTransaction = useCallback(
     (id: string) => {
-      setTransactions((prev) => {
-        const next = prev.filter((tx) => tx.id !== id);
-        saveTransactions(next);
-        return next;
-      });
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            await apiRequest("DELETE", `/api/books/${bookId}/transactions/${id}`);
+            setTransactions((prev) => prev.filter((tx) => tx.id !== id));
+          } catch (e) {
+            console.error("Failed to delete cloud transaction", e);
+          }
+        })();
+      } else {
+        setTransactions((prev) => {
+          const next = prev.filter((tx) => tx.id !== id);
+          saveTransactions(next);
+          return next;
+        });
+      }
     },
-    [saveTransactions]
+    [activeBook, saveTransactions]
   );
 
   const addDebt = useCallback(
     (d: Omit<Debt, "id" | "createdAt">) => {
-      setDebts((prev) => {
-        const next = [{ ...d, id: genId(), createdAt: Date.now() }, ...prev];
-        saveDebts(next);
-        return next;
-      });
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            const res = await apiRequest("POST", `/api/books/${bookId}/debts`, d);
+            const data = await res.json();
+            const mapped: Debt = {
+              id: data.id,
+              direction: data.direction,
+              name: data.name,
+              amount: parseFloat(data.amount),
+              note: data.note || "",
+              dueDate: data.dueDate || "",
+              settled: data.settled,
+              createdAt: new Date(data.createdAt).getTime(),
+            };
+            setDebts((prev) => [mapped, ...prev]);
+          } catch (e) {
+            console.error("Failed to add cloud debt", e);
+          }
+        })();
+      } else {
+        setDebts((prev) => {
+          const next = [{ ...d, id: genId(), createdAt: Date.now() }, ...prev];
+          saveDebts(next);
+          return next;
+        });
+      }
     },
-    [saveDebts]
+    [activeBook, saveDebts]
   );
 
   const updateDebt = useCallback(
     (id: string, d: Partial<Debt>) => {
-      setDebts((prev) => {
-        const next = prev.map((debt) =>
-          debt.id === id ? { ...debt, ...d } : debt
-        );
-        saveDebts(next);
-        return next;
-      });
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            await apiRequest("PUT", `/api/books/${bookId}/debts/${id}`, d);
+            setDebts((prev) =>
+              prev.map((debt) => (debt.id === id ? { ...debt, ...d } : debt))
+            );
+          } catch (e) {
+            console.error("Failed to update cloud debt", e);
+          }
+        })();
+      } else {
+        setDebts((prev) => {
+          const next = prev.map((debt) =>
+            debt.id === id ? { ...debt, ...d } : debt
+          );
+          saveDebts(next);
+          return next;
+        });
+      }
     },
-    [saveDebts]
+    [activeBook, saveDebts]
   );
 
   const deleteDebt = useCallback(
     (id: string) => {
-      setDebts((prev) => {
-        const next = prev.filter((d) => d.id !== id);
-        saveDebts(next);
-        return next;
-      });
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            await apiRequest("DELETE", `/api/books/${bookId}/debts/${id}`);
+            setDebts((prev) => prev.filter((d) => d.id !== id));
+          } catch (e) {
+            console.error("Failed to delete cloud debt", e);
+          }
+        })();
+      } else {
+        setDebts((prev) => {
+          const next = prev.filter((d) => d.id !== id);
+          saveDebts(next);
+          return next;
+        });
+      }
     },
-    [saveDebts]
+    [activeBook, saveDebts]
   );
 
   const setPin = useCallback(async (newPin: string | null) => {
@@ -202,6 +573,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppContextValue>(
     () => ({
+      books,
+      activeBook,
+      setActiveBook,
+      createBook,
+      deleteBook,
+      updateBook: updateBookMeta,
       transactions,
       debts,
       pin,
@@ -218,8 +595,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       totalBalance,
       totalIncome,
       totalExpense,
+      refreshBooks,
+      isLoadingBooks,
     }),
     [
+      books,
+      activeBook,
+      setActiveBook,
+      createBook,
+      deleteBook,
+      updateBookMeta,
       transactions,
       debts,
       pin,
@@ -236,6 +621,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       totalBalance,
       totalIncome,
       totalExpense,
+      refreshBooks,
+      isLoadingBooks,
     ]
   );
 
