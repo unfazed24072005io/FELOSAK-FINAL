@@ -80,3 +80,24 @@ export function isValidDateStr(dateStr: string): boolean {
   const d = new Date(dateStr);
   return !isNaN(d.getTime());
 }
+
+export function formatDateGroup(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+export function formatTime(timestamp: number): string {
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return "";
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? "pm" : "am";
+  const hour = h % 12 || 12;
+  const min = m < 10 ? `0${m}` : m;
+  return `${hour}:${min} ${ampm}`;
+}

@@ -69,12 +69,13 @@ A fully functional cash book application built for Egyptian SMEs (Small & Medium
 - EGP (ج.م) formatting with proper thousands separators
 - Date tracking for every entry
 
-### Dashboard
-- Net balance display with income/expense breakdown
-- Quick action buttons (Add Income, Add Expense, Add AR/AP)
-- Recent transactions list
-- Book type indicator (Local/Cloud)
-- Back navigation to books list
+### Dashboard (Professional Expense Manager Style)
+- Header with back arrow, book title, subtitle (role/type), add member icon, three-dot menu
+- Balance summary card: Net Balance, Total In (+), Total Out (-), VIEW REPORTS link
+- Date-grouped entry list with category badges, EGP amounts, running balance per entry
+- "Entry by You" attribution with timestamps
+- Sticky bottom bar: CASH IN (green) and CASH OUT (red) action buttons
+- Three-dot menu: Book Settings, Team Members (cloud), View Reports, Delete All Entries
 
 ### Transactions Screen
 - Full transaction list with filter by All / Income / Expense
@@ -93,9 +94,12 @@ A fully functional cash book application built for Egyptian SMEs (Small & Medium
 - Savings rate calculator
 - Stat cards for balances
 
-### Security (Settings)
-- PIN lock protection (4-digit)
-- Lock now / Change PIN / Remove PIN
+### Settings (Organized Sections)
+- Profile card for signed-in users (name, username, edit link)
+- Book Settings section (cloud books): Business Team, Business Settings
+- General Settings: Security (PIN lock), Your Profile, About
+- Sign Out with confirmation
+- Lock App Now shortcut when PIN is enabled
 
 ## App Structure
 ```

@@ -1,10 +1,12 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   View,
@@ -14,10 +16,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useApp, CashBook } from "@/context/AppContext";
+import { useApp, CashBook, Transaction } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import Colors from "@/constants/colors";
-import { formatEGP, formatEGPShort, formatDateShort } from "@/utils/format";
+import { formatEGP, formatEGPShort, formatDateGroup, formatTime } from "@/utils/format";
 
 export default function OverviewScreen() {
   const { activeBook } = useApp();
@@ -130,7 +132,7 @@ function BooksListView() {
               accessibilityLabel="Settings"
               accessibilityRole="button"
               style={({ pressed }) => [
-                styles.settingsBtn,
+                styles.iconBtn,
                 {
                   backgroundColor: theme.card,
                   borderColor: theme.border,
@@ -278,278 +280,332 @@ function BookDashboard() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const { activeBook, setActiveBook, totalBalance, totalIncome, totalExpense, transactions } =
-    useApp();
+  const {
+    activeBook,
+    setActiveBook,
+    totalBalance,
+    totalIncome,
+    totalExpense,
+    transactions,
+    deleteTransaction,
+  } = useApp();
 
-  const recent = useMemo(() => transactions.slice(0, 8), [transactions]);
-
-  const handleAdd = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push("/add-transaction");
-  }, []);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  const sections = useMemo(() => {
+    const grouped: Record<string, Transaction[]> = {};
+    transactions.forEach((tx) => {
+      const key = tx.date;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(tx);
+    });
+    const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+    let runningBalance = totalBalance;
+    const result: { title: string; data: (Transaction & { runningBalance: number })[] }[] = [];
+    for (const date of sortedDates) {
+      const items = grouped[date].sort((a, b) => b.createdAt - a.createdAt);
+      const withBalance = items.map((tx) => {
+        const bal = runningBalance;
+        runningBalance -= tx.type === "income" ? tx.amount : -tx.amount;
+        return { ...tx, runningBalance: bal };
+      });
+      result.push({ title: formatDateGroup(date), data: withBalance });
+    }
+    return result;
+  }, [transactions, totalBalance]);
+
+  const handleDeleteAll = useCallback(() => {
+    setMenuVisible(false);
+    Alert.alert(
+      "Delete All Entries",
+      "This will permanently delete all transactions in this book. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete All",
+          style: "destructive",
+          onPress: () => {
+            transactions.forEach((tx) => deleteTransaction(tx.id));
+          },
+        },
+      ]
+    );
+  }, [transactions, deleteTransaction]);
 
   if (!activeBook) return null;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingTop: topPad + 16, paddingBottom: bottomPad + 100 },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setActiveBook(null);
-              }}
-              style={styles.backRow}
-              accessibilityLabel="Back to books"
-              accessibilityRole="button"
-            >
-              <Feather name="chevron-left" size={16} color={theme.tint} />
-              <Text style={[styles.backText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
-                Books
-              </Text>
-            </Pressable>
-            <Text
-              style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}
-              numberOfLines={1}
-            >
-              {activeBook.name}
-            </Text>
-          </View>
-          <View style={styles.headerBtns}>
-            {activeBook.isCloud && (
-              <Pressable
-                onPress={() => router.push({ pathname: "/book-members", params: { bookId: activeBook.id } })}
-                accessibilityLabel="Members"
-                accessibilityRole="button"
-                style={({ pressed }) => [
-                  styles.settingsBtn,
-                  {
-                    backgroundColor: theme.card,
-                    borderColor: theme.border,
-                    opacity: pressed ? 0.6 : 1,
-                  },
-                ]}
-              >
-                <Feather name="users" size={18} color={theme.textSecondary} />
-              </Pressable>
-            )}
-            <Pressable
-              onPress={() => router.push("/settings")}
-              accessibilityLabel="Settings"
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.settingsBtn,
-                {
-                  backgroundColor: theme.card,
-                  borderColor: theme.border,
-                  opacity: pressed ? 0.6 : 1,
-                },
-              ]}
-            >
-              <Feather name="settings" size={18} color={theme.textSecondary} />
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={[styles.bookTypeBadge, { backgroundColor: activeBook.isCloud ? theme.income + "18" : theme.surface }]}>
-          <Feather name={activeBook.isCloud ? "cloud" : "book"} size={12} color={activeBook.isCloud ? theme.income : theme.textSecondary} />
-          <Text style={[styles.bookTypeText, { color: activeBook.isCloud ? theme.income : theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {activeBook.isCloud ? "Cloud Book" : "Local Book"}
-          </Text>
-        </View>
-
-        <View
-          style={[
-            styles.balanceCard,
-            { backgroundColor: theme.tint, shadowColor: theme.tint },
-          ]}
-        >
-          <Text
-            style={[
-              styles.balanceLabel,
-              { color: "#ffffff99", fontFamily: "Inter_500Medium" },
-            ]}
-          >
-            Net Balance
-          </Text>
-          <Text
-            style={[
-              styles.balanceAmount,
-              { color: "#FFFFFF", fontFamily: "Inter_700Bold" },
-            ]}
-          >
-            {formatEGP(totalBalance)}
-          </Text>
-          <View style={styles.balanceRow}>
-            <View style={styles.balanceStat}>
-              <View style={[styles.statDot, { backgroundColor: "#FFFFFF44" }]} />
-              <View>
-                <Text
-                  style={[styles.statLabel, { color: "#ffffff88", fontFamily: "Inter_400Regular" }]}
-                >
-                  Income
-                </Text>
-                <Text
-                  style={[styles.statAmt, { color: "#FFFFFF", fontFamily: "Inter_600SemiBold" }]}
-                >
-                  {formatEGPShort(totalIncome)}
-                </Text>
-              </View>
-            </View>
-            <View style={[styles.statDivider, { backgroundColor: "#FFFFFF33" }]} />
-            <View style={styles.balanceStat}>
-              <View style={[styles.statDot, { backgroundColor: "#FFFFFF44" }]} />
-              <View>
-                <Text
-                  style={[styles.statLabel, { color: "#ffffff88", fontFamily: "Inter_400Regular" }]}
-                >
-                  Expense
-                </Text>
-                <Text
-                  style={[styles.statAmt, { color: "#FFFFFF", fontFamily: "Inter_600SemiBold" }]}
-                >
-                  {formatEGPShort(totalExpense)}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.actionsRow}>
-          <QuickAction
-            icon="arrow-up-circle"
-            label="Add Income"
-            color={theme.income}
-            bg={theme.income + "22"}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push({ pathname: "/add-transaction", params: { type: "income" } });
-            }}
-            theme={theme}
-          />
-          <QuickAction
-            icon="arrow-down-circle"
-            label="Add Expense"
-            color={theme.expense}
-            bg={theme.expense + "22"}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push({ pathname: "/add-transaction", params: { type: "expense" } });
-            }}
-            theme={theme}
-          />
-          <QuickAction
-            icon="user-plus"
-            label="Add Debtor"
-            color={theme.tint}
-            bg={theme.tint + "22"}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push("/add-debt");
-            }}
-            theme={theme}
-          />
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <Text
-            style={[styles.sectionTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
-          >
-            Recent Transactions
-          </Text>
-          <Pressable onPress={() => router.push("/transactions" as any)}>
-            <Text
-              style={[styles.seeAll, { color: theme.tint, fontFamily: "Inter_500Medium" }]}
-            >
-              See all
-            </Text>
-          </Pressable>
-        </View>
-
-        {recent.length === 0 ? (
-          <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Feather name="inbox" size={32} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              No transactions yet.{"\n"}Tap + to add your first entry.
-            </Text>
-          </View>
-        ) : (
-          <View style={[styles.listCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            {recent.map((tx, idx) => (
-              <View key={tx.id}>
-                <TransactionRow tx={tx} theme={theme} />
-                {idx < recent.length - 1 && (
-                  <View style={[styles.divider, { backgroundColor: theme.border }]} />
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
-
-      <Pressable
-        onPress={handleAdd}
-        accessibilityLabel="Add transaction"
-        accessibilityRole="button"
-        style={({ pressed }) => [
-          styles.fab,
+      <View
+        style={[
+          styles.dashHeader,
           {
-            backgroundColor: theme.tint,
-            bottom: bottomPad + 80,
-            shadowColor: theme.tint,
-            transform: [{ scale: pressed ? 0.93 : 1 }],
+            paddingTop: topPad + 8,
+            backgroundColor: theme.background,
+            borderBottomColor: theme.border,
           },
         ]}
       >
-        <Feather name="plus" size={24} color="#FFFFFF" />
-      </Pressable>
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setActiveBook(null);
+          }}
+          accessibilityLabel="Back to books"
+          accessibilityRole="button"
+          hitSlop={8}
+        >
+          <Feather name="arrow-left" size={22} color={theme.text} />
+        </Pressable>
+        <View style={styles.dashHeaderCenter}>
+          <Text
+            style={[styles.dashTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
+            numberOfLines={1}
+          >
+            {activeBook.name}
+          </Text>
+          <Text style={[styles.dashSubtitle, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+            {activeBook.isCloud ? "You" + (activeBook.role !== "owner" ? ` (${activeBook.role})` : "") : "Local Book"}
+          </Text>
+        </View>
+        <View style={styles.dashHeaderRight}>
+          {activeBook.isCloud && (
+            <Pressable
+              onPress={() => router.push({ pathname: "/book-members", params: { bookId: activeBook.id } })}
+              accessibilityLabel="Members"
+              accessibilityRole="button"
+              hitSlop={6}
+            >
+              <Feather name="user-plus" size={20} color={theme.textSecondary} />
+            </Pressable>
+          )}
+          <Pressable
+            onPress={() => setMenuVisible(true)}
+            accessibilityLabel="Book menu"
+            accessibilityRole="button"
+            hitSlop={6}
+          >
+            <Feather name="more-vertical" size={20} color={theme.textSecondary} />
+          </Pressable>
+        </View>
+      </View>
+
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingBottom: bottomPad + 130 }}
+        stickySectionHeadersEnabled={false}
+        ListHeaderComponent={
+          <View style={styles.dashContent}>
+            <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
+                  Net Balance
+                </Text>
+                <Text
+                  style={[
+                    styles.summaryValue,
+                    {
+                      color: totalBalance >= 0 ? theme.text : theme.expense,
+                      fontFamily: "Inter_700Bold",
+                    },
+                  ]}
+                >
+                  {formatEGP(totalBalance)}
+                </Text>
+              </View>
+              <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: theme.text, fontFamily: "Inter_400Regular" }]}>
+                  Total In (+)
+                </Text>
+                <Text style={[styles.summaryIncome, { color: theme.income, fontFamily: "Inter_600SemiBold" }]}>
+                  {formatEGP(totalIncome)}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { color: theme.text, fontFamily: "Inter_400Regular" }]}>
+                  Total Out (-)
+                </Text>
+                <Text style={[styles.summaryExpense, { color: theme.expense, fontFamily: "Inter_600SemiBold" }]}>
+                  {formatEGP(totalExpense)}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => router.push("/(tabs)/analytics" as any)}
+                style={({ pressed }) => [styles.viewReports, { opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Text style={[styles.viewReportsText, { color: theme.tint, fontFamily: "Inter_600SemiBold" }]}>
+                  VIEW REPORTS
+                </Text>
+                <Feather name="chevron-right" size={14} color={theme.tint} />
+              </Pressable>
+            </View>
+
+            <Text style={[styles.entryCount, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              Showing {transactions.length} {transactions.length === 1 ? "entry" : "entries"}
+            </Text>
+          </View>
+        }
+        renderSectionHeader={({ section: { title } }) => (
+          <View style={styles.dateHeader}>
+            <Text style={[styles.dateHeaderText, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+              {title}
+            </Text>
+          </View>
+        )}
+        renderItem={({ item }) => (
+          <EntryRow
+            tx={item}
+            theme={theme}
+            onPress={() => {
+              router.push({ pathname: "/add-transaction", params: { editId: item.id } });
+            }}
+          />
+        )}
+        ListEmptyComponent={
+          <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border, marginHorizontal: 16 }]}>
+            <Feather name="inbox" size={32} color={theme.textSecondary} />
+            <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              No entries yet.{"\n"}Tap Cash In or Cash Out below to start.
+            </Text>
+          </View>
+        }
+      />
+
+      <View
+        style={[
+          styles.bottomBar,
+          {
+            paddingBottom: Platform.OS === "web" ? bottomPad : 8,
+            marginBottom: Platform.OS === "web" ? 84 : 50,
+            backgroundColor: theme.background,
+            borderTopColor: theme.border,
+          },
+        ]}
+      >
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.push({ pathname: "/add-transaction", params: { type: "income" } });
+          }}
+          style={({ pressed }) => [
+            styles.cashInBtn,
+            { backgroundColor: theme.income, opacity: pressed ? 0.85 : 1 },
+          ]}
+          testID="cash-in-btn"
+        >
+          <Feather name="plus" size={18} color="#FFFFFF" />
+          <Text style={[styles.cashBtnText, { fontFamily: "Inter_700Bold" }]}>CASH IN</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.push({ pathname: "/add-transaction", params: { type: "expense" } });
+          }}
+          style={({ pressed }) => [
+            styles.cashOutBtn,
+            { backgroundColor: theme.expense, opacity: pressed ? 0.85 : 1 },
+          ]}
+          testID="cash-out-btn"
+        >
+          <Feather name="minus" size={18} color="#FFFFFF" />
+          <Text style={[styles.cashBtnText, { fontFamily: "Inter_700Bold" }]}>CASH OUT</Text>
+        </Pressable>
+      </View>
+
+      <Modal
+        visible={menuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuVisible(false)}
+      >
+        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
+          <View
+            style={[
+              styles.menuCard,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                top: topPad + 48,
+              },
+            ]}
+          >
+            <MenuItem
+              icon="settings"
+              label="Book Settings"
+              theme={theme}
+              onPress={() => {
+                setMenuVisible(false);
+                router.push("/settings");
+              }}
+            />
+            <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
+            {activeBook.isCloud && (
+              <>
+                <MenuItem
+                  icon="users"
+                  label="Team Members"
+                  theme={theme}
+                  onPress={() => {
+                    setMenuVisible(false);
+                    router.push({ pathname: "/book-members", params: { bookId: activeBook.id } });
+                  }}
+                />
+                <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
+              </>
+            )}
+            <MenuItem
+              icon="bar-chart-2"
+              label="View Reports"
+              theme={theme}
+              onPress={() => {
+                setMenuVisible(false);
+                router.push("/(tabs)/analytics" as any);
+              }}
+            />
+            <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
+            <MenuItem
+              icon="trash-2"
+              label="Delete All Entries"
+              theme={theme}
+              color={theme.expense}
+              onPress={handleDeleteAll}
+            />
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
-function QuickAction({
+function MenuItem({
   icon,
   label,
-  color,
-  bg,
-  onPress,
   theme,
+  color,
+  onPress,
 }: {
   icon: string;
   label: string;
-  color: string;
-  bg: string;
-  onPress: () => void;
   theme: typeof Colors.dark;
+  color?: string;
+  onPress: () => void;
 }) {
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.quickAction,
-        {
-          backgroundColor: theme.card,
-          borderColor: theme.border,
-          opacity: pressed ? 0.7 : 1,
-        },
-      ]}
+      style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
     >
-      <View style={[styles.quickIcon, { backgroundColor: bg }]}>
-        <Feather name={icon as any} size={20} color={color} />
-      </View>
+      <Feather name={icon as any} size={18} color={color || theme.text} />
       <Text
-        style={[styles.quickLabel, { color: theme.text, fontFamily: "Inter_500Medium" }]}
-        numberOfLines={1}
+        style={[
+          styles.menuItemText,
+          { color: color || theme.text, fontFamily: "Inter_400Regular" },
+        ]}
       >
         {label}
       </Text>
@@ -557,67 +613,77 @@ function QuickAction({
   );
 }
 
-function TransactionRow({
+function EntryRow({
   tx,
   theme,
+  onPress,
 }: {
-  tx: any;
+  tx: Transaction & { runningBalance: number };
   theme: typeof Colors.dark;
+  onPress: () => void;
 }) {
   const isIncome = tx.type === "income";
   return (
-    <View style={styles.txRow}>
-      <View
-        style={[
-          styles.txIcon,
-          {
-            backgroundColor: isIncome
-              ? theme.income + "22"
-              : theme.expense + "22",
-          },
-        ]}
-      >
-        <Feather
-          name={isIncome ? "trending-up" : "trending-down"}
-          size={16}
-          color={isIncome ? theme.income : theme.expense}
-        />
-      </View>
-      <View style={styles.txMeta}>
-        <Text
-          style={[styles.txCategory, { color: theme.text, fontFamily: "Inter_500Medium" }]}
-          numberOfLines={1}
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.entryRow,
+        {
+          backgroundColor: pressed ? theme.surface : "transparent",
+        },
+      ]}
+    >
+      <View style={styles.entryLeft}>
+        <View
+          style={[
+            styles.categoryBadge,
+            {
+              backgroundColor: isIncome ? theme.income + "18" : theme.expense + "18",
+              borderColor: isIncome ? theme.income + "44" : theme.expense + "44",
+            },
+          ]}
         >
-          {tx.category}
-        </Text>
+          <Text
+            style={[
+              styles.categoryBadgeText,
+              {
+                color: isIncome ? theme.income : theme.expense,
+                fontFamily: "Inter_500Medium",
+              },
+            ]}
+          >
+            {tx.category}
+          </Text>
+        </View>
         {tx.note ? (
           <Text
-            style={[styles.txNote, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
-            numberOfLines={1}
+            style={[styles.entryNote, { color: theme.text, fontFamily: "Inter_400Regular" }]}
+            numberOfLines={2}
           >
             {tx.note}
           </Text>
         ) : null}
+        <Text style={[styles.entryMeta, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+          Entry by You at {formatTime(tx.createdAt)}
+        </Text>
       </View>
-      <View style={styles.txRight}>
+      <View style={styles.entryRight}>
         <Text
           style={[
-            styles.txAmount,
+            styles.entryAmount,
             {
               color: isIncome ? theme.income : theme.expense,
-              fontFamily: "Inter_600SemiBold",
+              fontFamily: "Inter_700Bold",
             },
           ]}
         >
-          {isIncome ? "+" : "-"}{formatEGPShort(tx.amount)}
+          {formatEGP(isIncome ? tx.amount : -tx.amount)}
         </Text>
-        <Text
-          style={[styles.txDate, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
-        >
-          {formatDateShort(tx.date)}
+        <Text style={[styles.entryBalance, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+          Balance: {formatEGP(tx.runningBalance)}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -640,7 +706,7 @@ const styles = StyleSheet.create({
   },
   greeting: { fontSize: 13, marginBottom: 2 },
   headerTitle: { fontSize: 28 },
-  settingsBtn: {
+  iconBtn: {
     width: 40,
     height: 40,
     borderRadius: 12,
@@ -659,24 +725,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   userText: { fontSize: 13 },
-  backRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    marginBottom: 4,
-  },
-  backText: { fontSize: 14 },
-  bookTypeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  bookTypeText: { fontSize: 12 },
   booksGrid: { gap: 12 },
   bookCard: {
     borderRadius: 20,
@@ -711,48 +759,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   bookRole: { fontSize: 12, textTransform: "capitalize" },
-  balanceCard: {
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 20,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  balanceLabel: { fontSize: 13, marginBottom: 6 },
-  balanceAmount: { fontSize: 36, marginBottom: 20 },
-  balanceRow: { flexDirection: "row", alignItems: "center" },
-  balanceStat: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
-  statDot: { width: 8, height: 8, borderRadius: 4 },
-  statLabel: { fontSize: 12, marginBottom: 2 },
-  statAmt: { fontSize: 16 },
-  statDivider: { width: 1, height: 40, marginHorizontal: 16 },
-  actionsRow: { flexDirection: "row", gap: 10, marginBottom: 28 },
-  quickAction: {
-    flex: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    alignItems: "center",
-    gap: 8,
-  },
-  quickIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  quickLabel: { fontSize: 11, textAlign: "center" },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  sectionTitle: { fontSize: 17 },
-  seeAll: { fontSize: 14 },
   emptyBox: {
     borderRadius: 20,
     borderWidth: 1,
@@ -765,32 +771,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 22,
   },
-  listCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16 },
-  txRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-  },
-  txIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  txMeta: { flex: 1 },
-  txCategory: { fontSize: 14, marginBottom: 2 },
-  txNote: { fontSize: 12 },
-  txRight: { alignItems: "flex-end" },
-  txAmount: { fontSize: 14, marginBottom: 2 },
-  txDate: { fontSize: 11 },
   fab: {
     position: "absolute",
     right: 20,
@@ -804,4 +784,137 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
+
+  dashHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+  },
+  dashHeaderCenter: { flex: 1 },
+  dashTitle: { fontSize: 18 },
+  dashSubtitle: { fontSize: 12, marginTop: 1 },
+  dashHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  dashContent: { paddingHorizontal: 16, paddingTop: 16 },
+
+  summaryCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 16,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 6,
+  },
+  summaryDivider: { height: StyleSheet.hairlineWidth, marginVertical: 4 },
+  summaryLabel: { fontSize: 15 },
+  summaryValue: { fontSize: 22 },
+  summaryIncome: { fontSize: 16 },
+  summaryExpense: { fontSize: 16 },
+  viewReports: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 12,
+    gap: 4,
+  },
+  viewReportsText: { fontSize: 14, letterSpacing: 0.5 },
+
+  entryCount: {
+    textAlign: "center",
+    fontSize: 13,
+    marginBottom: 12,
+  },
+
+  dateHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  dateHeaderText: { fontSize: 13 },
+
+  entryRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(128,128,128,0.15)",
+  },
+  entryLeft: { flex: 1, gap: 4 },
+  categoryBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  categoryBadgeText: { fontSize: 12 },
+  entryNote: { fontSize: 14, marginTop: 2 },
+  entryMeta: { fontSize: 11, marginTop: 2 },
+  entryRight: { alignItems: "flex-end", justifyContent: "center", marginLeft: 12 },
+  entryAmount: { fontSize: 17 },
+  entryBalance: { fontSize: 11, marginTop: 2 },
+
+  bottomBar: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cashInBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: 8,
+    gap: 6,
+  },
+  cashOutBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    borderRadius: 8,
+    gap: 6,
+  },
+  cashBtnText: { color: "#FFFFFF", fontSize: 15 },
+
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  menuCard: {
+    position: "absolute",
+    right: 16,
+    minWidth: 200,
+    borderRadius: 12,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    overflow: "hidden",
+  },
+  menuDivider: { height: StyleSheet.hairlineWidth },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  menuItemText: { fontSize: 15 },
 });

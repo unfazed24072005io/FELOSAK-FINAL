@@ -15,6 +15,7 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import Colors from "@/constants/colors";
 
 export default function SettingsScreen() {
@@ -22,12 +23,12 @@ export default function SettingsScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const { pin, setPin, lock } = useApp();
+  const { pin, setPin, lock, activeBook } = useApp();
+  const { user, logout } = useAuth();
 
   const [step, setStep] = useState<"idle" | "enter" | "confirm">("idle");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
-  const [verifyPin, setVerifyPin] = useState("");
   const [error, setError] = useState("");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -76,10 +77,19 @@ export default function SettingsScreen() {
     ]);
   }, [setPin]);
 
-  const handleLockNow = useCallback(() => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    lock();
-  }, [lock]);
+  const handleLogout = useCallback(() => {
+    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Sign Out",
+        style: "destructive",
+        onPress: () => {
+          logout();
+          router.back();
+        },
+      },
+    ]);
+  }, [logout]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -94,7 +104,7 @@ export default function SettingsScreen() {
         ]}
       >
         <Pressable onPress={() => router.back()} accessibilityLabel="Close settings" accessibilityRole="button">
-          <Feather name="x" size={22} color={theme.textSecondary} />
+          <Feather name="arrow-left" size={22} color={theme.text} />
         </Pressable>
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
@@ -106,55 +116,92 @@ export default function SettingsScreen() {
 
       <ScrollView
         contentContainerStyle={[
-          styles.scroll,
+          styles.scrollContent,
           { paddingBottom: bottomPad + 40 },
         ]}
       >
-        {/* Security Section */}
-        <View style={styles.sectionGroup}>
-          <Text
-            style={[styles.sectionHeader, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}
-          >
-            SECURITY
+        {user && (
+          <View style={[styles.profileCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.profileAvatar, { backgroundColor: theme.tint + "22" }]}>
+              <Feather name="user" size={24} color={theme.tint} />
+            </View>
+            <View style={styles.profileInfo}>
+              <Text style={[styles.profileName, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                {user.displayName}
+              </Text>
+              <Text style={[styles.profileEmail, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                {user.username}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => router.push("/account")}
+              hitSlop={8}
+            >
+              <Feather name="edit-2" size={16} color={theme.tint} />
+            </Pressable>
+          </View>
+        )}
+
+        {activeBook?.isCloud && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+              Book Settings
+            </Text>
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <SettingsRow
+                icon="users"
+                title="Business Team"
+                subtitle="Add, remove or change role"
+                theme={theme}
+                onPress={() => {
+                  if (activeBook) {
+                    router.push({ pathname: "/book-members", params: { bookId: activeBook.id } });
+                  }
+                }}
+              />
+              <View style={[styles.divider, { backgroundColor: theme.border }]} />
+              <SettingsRow
+                icon="sliders"
+                title="Business Settings"
+                subtitle="Settings specific to this business"
+                theme={theme}
+                onPress={() => {
+                  Alert.alert("Coming Soon", "Business-specific settings will be available in a future update.");
+                }}
+              />
+            </View>
+          </View>
+        )}
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+            General Settings
           </Text>
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            {/* PIN Status */}
-            <View style={styles.row}>
-              <View style={[styles.rowIcon, { backgroundColor: theme.tint + "22" }]}>
-                <Feather name="lock" size={16} color={theme.tint} />
-              </View>
-              <View style={styles.rowContent}>
-                <Text style={[styles.rowTitle, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                  PIN Lock
-                </Text>
-                <Text style={[styles.rowSub, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                  {pin ? "Enabled" : "Disabled"}
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.badge,
-                  { backgroundColor: pin ? theme.income + "22" : theme.border },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.badgeTxt,
-                    {
-                      color: pin ? theme.income : theme.textSecondary,
-                      fontFamily: "Inter_500Medium",
-                    },
-                  ]}
-                >
-                  {pin ? "ON" : "OFF"}
-                </Text>
-              </View>
-            </View>
+            <SettingsRow
+              icon="lock"
+              title="Security"
+              subtitle={pin ? "PIN Lock enabled" : "Set up PIN Lock"}
+              theme={theme}
+              badge={pin ? "ON" : undefined}
+              badgeColor={theme.income}
+              onPress={() => {
+                if (pin) {
+                  Alert.alert("PIN Lock", "Your PIN is active.", [
+                    { text: "Change PIN", onPress: () => { setStep("enter"); setNewPin(""); setConfirmPin(""); setError(""); } },
+                    { text: "Remove PIN", style: "destructive", onPress: handleRemovePin },
+                    { text: "Cancel", style: "cancel" },
+                  ]);
+                } else {
+                  setStep("enter");
+                  setNewPin("");
+                  setConfirmPin("");
+                  setError("");
+                }
+              }}
+            />
 
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-            {/* PIN Setup */}
-            {step !== "idle" ? (
+            {step !== "idle" && (
               <View style={styles.pinSetupBox}>
                 <Text
                   style={[styles.pinPrompt, { color: theme.text, fontFamily: "Inter_500Medium" }]}
@@ -176,7 +223,7 @@ export default function SettingsScreen() {
                   keyboardType="number-pad"
                   secureTextEntry
                   maxLength={4}
-                  placeholder="••••"
+                  placeholder="----"
                   placeholderTextColor={theme.textSecondary + "88"}
                   textAlign="center"
                 />
@@ -210,86 +257,118 @@ export default function SettingsScreen() {
                   </Pressable>
                 </View>
               </View>
+            )}
+
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            {!user ? (
+              <SettingsRow
+                icon="user"
+                title="Your Profile"
+                subtitle="Sign in to sync across devices"
+                theme={theme}
+                onPress={() => router.push("/auth")}
+              />
             ) : (
-              <Pressable
-                onPress={handleSetPin}
-                style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
-              >
-                <View style={[styles.rowIcon, { backgroundColor: theme.tint + "22" }]}>
-                  <Feather name="edit-2" size={16} color={theme.tint} />
-                </View>
-                <View style={styles.rowContent}>
-                  <Text style={[styles.rowTitle, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                    {pin ? "Change PIN" : "Set PIN"}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={16} color={theme.textSecondary} />
-              </Pressable>
+              <SettingsRow
+                icon="user"
+                title="Your Profile"
+                subtitle={user.displayName}
+                theme={theme}
+                onPress={() => router.push("/account")}
+              />
             )}
-
-            {pin && step === "idle" && (
-              <>
-                <View style={[styles.divider, { backgroundColor: theme.border }]} />
-                <Pressable
-                  onPress={handleLockNow}
-                  style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
-                >
-                  <View style={[styles.rowIcon, { backgroundColor: theme.tint + "22" }]}>
-                    <Feather name="lock" size={16} color={theme.tint} />
-                  </View>
-                  <View style={styles.rowContent}>
-                    <Text style={[styles.rowTitle, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                      Lock Now
-                    </Text>
-                  </View>
-                  <Feather name="chevron-right" size={16} color={theme.textSecondary} />
-                </Pressable>
-
-                <View style={[styles.divider, { backgroundColor: theme.border }]} />
-                <Pressable
-                  onPress={handleRemovePin}
-                  style={({ pressed }) => [styles.row, { opacity: pressed ? 0.6 : 1 }]}
-                >
-                  <View style={[styles.rowIcon, { backgroundColor: theme.expense + "22" }]}>
-                    <Feather name="unlock" size={16} color={theme.expense} />
-                  </View>
-                  <View style={styles.rowContent}>
-                    <Text style={[styles.rowTitle, { color: theme.expense, fontFamily: "Inter_500Medium" }]}>
-                      Remove PIN
-                    </Text>
-                  </View>
-                  <Feather name="chevron-right" size={16} color={theme.textSecondary} />
-                </Pressable>
-              </>
-            )}
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
+              icon="info"
+              title="About Misr Cash Book"
+              subtitle="Version 1.0.0"
+              theme={theme}
+              onPress={() => {
+                Alert.alert(
+                  "Misr Cash Book",
+                  "Version 1.0.0\n\nBuilt for Egyptian SMEs.\nOffline-first with cloud sync.\n\nEGP currency support with Arabic numeral input.",
+                );
+              }}
+            />
           </View>
         </View>
 
-        {/* About Section */}
-        <View style={styles.sectionGroup}>
-          <Text
-            style={[styles.sectionHeader, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}
+        {pin && step === "idle" && (
+          <Pressable
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              lock();
+            }}
+            style={({ pressed }) => [
+              styles.lockBtn,
+              { backgroundColor: theme.card, borderColor: theme.border, opacity: pressed ? 0.7 : 1 },
+            ]}
           >
-            ABOUT
-          </Text>
-          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.row}>
-              <View style={[styles.rowIcon, { backgroundColor: theme.tint + "22" }]}>
-                <Feather name="info" size={16} color={theme.tint} />
-              </View>
-              <View style={styles.rowContent}>
-                <Text style={[styles.rowTitle, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                  Misr Cash Book
-                </Text>
-                <Text style={[styles.rowSub, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                  Version 1.0.0 · Made for Egyptian SMEs
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
+            <Feather name="lock" size={16} color={theme.tint} />
+            <Text style={[styles.lockBtnText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
+              Lock App Now
+            </Text>
+          </Pressable>
+        )}
+
+        {user && (
+          <Pressable
+            onPress={handleLogout}
+            style={({ pressed }) => [styles.logoutBtn, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Feather name="log-out" size={18} color={theme.expense} />
+            <Text style={[styles.logoutText, { color: theme.expense, fontFamily: "Inter_500Medium" }]}>
+              Sign Out
+            </Text>
+          </Pressable>
+        )}
       </ScrollView>
     </View>
+  );
+}
+
+function SettingsRow({
+  icon,
+  title,
+  subtitle,
+  theme,
+  badge,
+  badgeColor,
+  onPress,
+}: {
+  icon: string;
+  title: string;
+  subtitle: string;
+  theme: typeof Colors.dark;
+  badge?: string;
+  badgeColor?: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.settingsRow, { opacity: pressed ? 0.6 : 1 }]}
+    >
+      <View style={[styles.rowIcon, { backgroundColor: theme.tint + "18" }]}>
+        <Feather name={icon as any} size={18} color={theme.tint} />
+      </View>
+      <View style={styles.rowContent}>
+        <Text style={[styles.rowTitle, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
+          {title}
+        </Text>
+        <Text style={[styles.rowSubtitle, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+          {subtitle}
+        </Text>
+      </View>
+      {badge && (
+        <View style={[styles.badge, { backgroundColor: (badgeColor || theme.tint) + "22" }]}>
+          <Text style={[styles.badgeText, { color: badgeColor || theme.tint, fontFamily: "Inter_600SemiBold" }]}>
+            {badge}
+          </Text>
+        </View>
+      )}
+      <Feather name="chevron-right" size={16} color={theme.textSecondary} />
+    </Pressable>
   );
 }
 
@@ -299,20 +378,51 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { fontSize: 17 },
-  scroll: { padding: 20, gap: 24 },
-  sectionGroup: { gap: 8 },
-  sectionHeader: { fontSize: 12, textTransform: "uppercase", letterSpacing: 0.8, paddingLeft: 4 },
+  headerTitle: { fontSize: 18 },
+  scrollContent: { paddingTop: 16 },
+
+  profileCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 12,
+  },
+  profileAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  profileInfo: { flex: 1 },
+  profileName: { fontSize: 16 },
+  profileEmail: { fontSize: 13, marginTop: 2 },
+
+  section: { marginBottom: 20 },
+  sectionLabel: {
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
   card: {
-    borderRadius: 20,
+    marginHorizontal: 16,
+    borderRadius: 16,
     borderWidth: 1,
     overflow: "hidden",
   },
-  row: {
+  divider: { height: StyleSheet.hairlineWidth, marginLeft: 60 },
+
+  settingsRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
@@ -328,41 +438,64 @@ const styles = StyleSheet.create({
   },
   rowContent: { flex: 1 },
   rowTitle: { fontSize: 15 },
-  rowSub: { fontSize: 12, marginTop: 2 },
+  rowSubtitle: { fontSize: 12, marginTop: 1 },
   badge: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 3,
     borderRadius: 6,
   },
-  badgeTxt: { fontSize: 12 },
-  divider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16 },
+  badgeText: { fontSize: 11 },
+
   pinSetupBox: {
-    padding: 16,
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    gap: 10,
   },
-  pinPrompt: { fontSize: 15, textAlign: "center" },
+  pinPrompt: { fontSize: 14, textAlign: "center" },
   pinInput: {
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
-    fontSize: 24,
-    paddingVertical: 12,
+    fontSize: 22,
+    paddingVertical: 10,
     letterSpacing: 8,
   },
-  errorTxt: { fontSize: 13, textAlign: "center" },
+  errorTxt: { fontSize: 12, textAlign: "center" },
   pinBtnRow: { flexDirection: "row", gap: 10 },
   pinCancelBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: "center",
   },
-  pinCancelTxt: { fontSize: 15 },
+  pinCancelTxt: { fontSize: 14 },
   pinConfirmBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: "center",
   },
-  pinConfirmTxt: { color: "#FFF", fontSize: 15 },
+  pinConfirmTxt: { color: "#FFF", fontSize: 14 },
+
+  lockBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 20,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  lockBtnText: { fontSize: 15 },
+
+  logoutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  logoutText: { fontSize: 16 },
 });
