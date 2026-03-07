@@ -2,11 +2,35 @@
 
 A fully functional cash book application built for Egyptian SMEs (Small & Medium Enterprises). Designed for the Misr (Egypt) market with Arabic pound (EGP) formatting throughout.
 
+## Architecture
+
+### Offline-First Design
+- **All user data is stored locally** on the device via AsyncStorage
+- The app makes ZERO API calls for data operations
+- Works completely without internet after initial app load
+- Each user's data is private and stays on their device
+
+### Backend (Minimal)
+- Express.js serves ONLY the landing page and static app bundle
+- NO database, NO API routes for user data
+- Stateless — can handle any number of users since it only serves files
+- For production scale: add a CDN in front for static assets
+
+### Data Storage Keys (AsyncStorage)
+- `misr_transactions` — all income/expense transactions
+- `misr_debts` — all AR/AP entries
+- `misr_pin` — PIN lock code
+
+### Input Validation
+- Amount parsing: handles commas (1,500), Arabic numerals (١٢٣), Arabic decimal separator (٫)
+- Date validation: enforces YYYY-MM-DD format
+- All interactive elements have accessibility labels
+
 ## Tech Stack
 - **Frontend**: Expo React Native (Expo Router, file-based routing)
-- **Backend**: Express.js (TypeScript) — serves API and landing page
+- **Backend**: Express.js (TypeScript) — serves static files and landing page only
 - **Storage**: AsyncStorage (offline-first, no internet required)
-- **UI**: React Native StyleSheet, @expo/vector-icons, expo-haptics, expo-linear-gradient
+- **UI**: React Native StyleSheet, @expo/vector-icons, expo-haptics
 
 ## App Features
 
@@ -56,19 +80,22 @@ app/
     transactions.tsx   # Transactions list
     debtors.tsx        # AR/AP tracker
     analytics.tsx      # Charts & analytics
-  add-transaction.tsx  # Add/edit transaction (form sheet)
-  add-debt.tsx         # Add/edit AR/AP entry (form sheet)
+  add-transaction.tsx  # Add/edit transaction (form sheet, keyboard-aware)
+  add-debt.tsx         # Add/edit AR/AP entry (form sheet, keyboard-aware)
   settings.tsx         # App settings (PIN)
 context/
   AppContext.tsx        # Global state with AsyncStorage persistence
 utils/
-  format.ts            # EGP formatting, date formatting
+  format.ts            # EGP formatting, date validation, Arabic numeral normalization
 components/
   PinLockOverlay.tsx   # PIN lock fullscreen overlay
   ErrorBoundary.tsx    # Error boundary
   ErrorFallback.tsx    # Error fallback UI
 constants/
   colors.ts            # Dark (deep green + gold) and light theme
+server/
+  index.ts             # Express server - static files only
+  routes.ts            # Empty - no API routes (all data is local)
 ```
 
 ## Design
