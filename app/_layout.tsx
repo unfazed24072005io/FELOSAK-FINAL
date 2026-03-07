@@ -1,4 +1,3 @@
-// template
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -14,14 +13,51 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
+import { AppProvider } from "@/context/AppContext";
+import { PinLockOverlay } from "@/components/PinLockOverlay";
+import { useColorScheme } from "react-native";
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme !== "light";
+
   return (
-    <Stack screenOptions={{ headerBackTitle: "Back" }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: {
+          backgroundColor: isDark ? "#0A1F15" : "#F7F5F0",
+        },
+      }}
+    >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="add-transaction"
+        options={{
+          presentation: "formSheet",
+          headerShown: false,
+          sheetAllowedDetents: [0.75, 1.0],
+          sheetGrabberVisible: true,
+        }}
+      />
+      <Stack.Screen
+        name="add-debt"
+        options={{
+          presentation: "formSheet",
+          headerShown: false,
+          sheetAllowedDetents: [0.75, 1.0],
+          sheetGrabberVisible: true,
+        }}
+      />
+      <Stack.Screen
+        name="settings"
+        options={{
+          presentation: "modal",
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 }
@@ -45,9 +81,12 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <GestureHandlerRootView>
+        <GestureHandlerRootView style={{ flex: 1 }}>
           <KeyboardProvider>
-            <RootLayoutNav />
+            <AppProvider>
+              <RootLayoutNav />
+              <PinLockOverlay />
+            </AppProvider>
           </KeyboardProvider>
         </GestureHandlerRootView>
       </QueryClientProvider>
