@@ -93,7 +93,7 @@ export default function SettingsScreen() {
           },
         ]}
       >
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => router.back()} accessibilityLabel="Close settings" accessibilityRole="button">
           <Feather name="x" size={22} color={theme.textSecondary} />
         </Pressable>
         <Text

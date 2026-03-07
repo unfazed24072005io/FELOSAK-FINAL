@@ -65,6 +65,8 @@ export default function DashboardScreen() {
           </View>
           <Pressable
             onPress={() => router.push("/settings")}
+            accessibilityLabel="Settings"
+            accessibilityRole="button"
             style={({ pressed }) => [
               styles.settingsBtn,
               {
@@ -219,6 +221,8 @@ export default function DashboardScreen() {
       {/* FAB */}
       <Pressable
         onPress={handleAdd}
+        accessibilityLabel="Add transaction"
+        accessibilityRole="button"
         style={({ pressed }) => [
           styles.fab,
           {

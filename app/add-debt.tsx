@@ -3,7 +3,6 @@ import {
   Alert,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -11,12 +10,13 @@ import {
   useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { router, useLocalSearchParams } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp } from "@/context/AppContext";
 import Colors from "@/constants/colors";
-import { today } from "@/utils/format";
+import { parseAmount, isValidDateStr } from "@/utils/format";
 
 export default function AddDebtScreen() {
   const insets = useSafeAreaInsets();
@@ -39,16 +39,20 @@ export default function AddDebtScreen() {
   const [note, setNote] = useState(editDebt?.note ?? "");
   const [dueDate, setDueDate] = useState(editDebt?.dueDate ?? "");
 
+  const parsedAmount = useMemo(() => parseAmount(amount), [amount]);
+  const dueDateValid = useMemo(
+    () => dueDate === "" || isValidDateStr(dueDate),
+    [dueDate]
+  );
   const isValid = useMemo(
-    () => name.trim().length > 0 && amount.length > 0 && parseFloat(amount) > 0,
-    [name, amount]
+    () => name.trim().length > 0 && parsedAmount !== null && dueDateValid,
+    [name, parsedAmount, dueDateValid]
   );
 
   const handleSave = useCallback(() => {
-    if (!isValid) return;
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert("Invalid Amount", "Please enter a valid amount.");
+    if (!isValid || parsedAmount === null) return;
+    if (dueDate && !isValidDateStr(dueDate)) {
+      Alert.alert("Invalid Date", "Please enter a date in YYYY-MM-DD format.");
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -71,7 +75,7 @@ export default function AddDebtScreen() {
       });
     }
     router.back();
-  }, [isValid, direction, name, amount, note, dueDate, editDebt, addDebt, updateDebt]);
+  }, [isValid, parsedAmount, dueDateValid, direction, name, note, dueDate, editDebt, addDebt, updateDebt]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -79,7 +83,7 @@ export default function AddDebtScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => router.back()} accessibilityLabel="Close" accessibilityRole="button">
           <Feather name="x" size={22} color={theme.textSecondary} />
         </Pressable>
         <Text
@@ -90,6 +94,8 @@ export default function AddDebtScreen() {
         <Pressable
           onPress={handleSave}
           disabled={!isValid}
+          accessibilityLabel={editDebt ? "Update entry" : "Save entry"}
+          accessibilityRole="button"
           style={({ pressed }) => [
             styles.saveBtn,
             {
@@ -104,9 +110,10 @@ export default function AddDebtScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 40 }]}
         keyboardShouldPersistTaps="handled"
+        bottomOffset={20}
       >
         {/* Direction Toggle */}
         <View
@@ -295,7 +302,7 @@ export default function AddDebtScreen() {
             />
           </View>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

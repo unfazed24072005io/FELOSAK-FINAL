@@ -3,7 +3,6 @@ import {
   Alert,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -11,12 +10,13 @@ import {
   useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { router, useLocalSearchParams } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp, TransactionType } from "@/context/AppContext";
 import Colors from "@/constants/colors";
-import { today } from "@/utils/format";
+import { today, parseAmount, isValidDateStr } from "@/utils/format";
 
 const INCOME_CATEGORIES = [
   "Sales", "Services", "Consulting", "Rent Received", "Investment", "Refund", "Other Income",
@@ -50,16 +50,17 @@ export default function AddTransactionScreen() {
 
   const categories = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
+  const parsedAmount = useMemo(() => parseAmount(amount), [amount]);
+  const dateValid = useMemo(() => isValidDateStr(date), [date]);
   const isValid = useMemo(
-    () => amount.length > 0 && parseFloat(amount) > 0 && category.length > 0,
-    [amount, category]
+    () => parsedAmount !== null && category.length > 0 && dateValid,
+    [parsedAmount, category, dateValid]
   );
 
   const handleSave = useCallback(() => {
-    if (!isValid) return;
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      Alert.alert("Invalid Amount", "Please enter a valid amount.");
+    if (!isValid || parsedAmount === null) return;
+    if (!dateValid) {
+      Alert.alert("Invalid Date", "Please enter a date in YYYY-MM-DD format.");
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -69,7 +70,7 @@ export default function AddTransactionScreen() {
       addTransaction({ type, amount: parsedAmount, category, note, date });
     }
     router.back();
-  }, [isValid, amount, type, category, note, date, editTx, addTransaction, updateTransaction]);
+  }, [isValid, parsedAmount, dateValid, type, category, note, date, editTx, addTransaction, updateTransaction]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -78,7 +79,7 @@ export default function AddTransactionScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Handle / Header */}
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
-        <Pressable onPress={() => router.back()}>
+        <Pressable onPress={() => router.back()} accessibilityLabel="Close" accessibilityRole="button">
           <Feather name="x" size={22} color={theme.textSecondary} />
         </Pressable>
         <Text
@@ -89,6 +90,8 @@ export default function AddTransactionScreen() {
         <Pressable
           onPress={handleSave}
           disabled={!isValid}
+          accessibilityLabel={editTx ? "Update transaction" : "Save transaction"}
+          accessibilityRole="button"
           style={({ pressed }) => [
             styles.saveBtn,
             {
@@ -103,9 +106,10 @@ export default function AddTransactionScreen() {
         </Pressable>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 40 }]}
         keyboardShouldPersistTaps="handled"
+        bottomOffset={20}
       >
         {/* Type Toggle */}
         <View
@@ -324,7 +328,7 @@ export default function AddTransactionScreen() {
             />
           </View>
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }
