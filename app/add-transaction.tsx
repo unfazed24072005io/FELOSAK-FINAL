@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -32,7 +33,7 @@ export default function AddTransactionScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const { addTransaction, updateTransaction, transactions } = useApp();
+  const { addTransaction, updateTransaction, deleteTransaction, transactions } = useApp();
   const params = useLocalSearchParams<{ type?: string; editId?: string }>();
 
   const editTx = useMemo(
@@ -56,6 +57,16 @@ export default function AddTransactionScreen() {
     () => parsedAmount !== null && category.length > 0 && dateValid,
     [parsedAmount, category, dateValid]
   );
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (!editTx) return;
+    deleteTransaction(editTx.id);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowDeleteConfirm(false);
+    router.back();
+  }, [editTx, deleteTransaction]);
 
   const handleSave = useCallback(() => {
     if (!isValid || parsedAmount === null) return;
@@ -87,23 +98,35 @@ export default function AddTransactionScreen() {
         >
           {editTx ? "Edit Transaction" : "New Transaction"}
         </Text>
-        <Pressable
-          onPress={handleSave}
-          disabled={!isValid}
-          accessibilityLabel={editTx ? "Update transaction" : "Save transaction"}
-          accessibilityRole="button"
-          style={({ pressed }) => [
-            styles.saveBtn,
-            {
-              backgroundColor: isValid ? theme.tint : theme.tint + "44",
-              opacity: pressed ? 0.8 : 1,
-            },
-          ]}
-        >
-          <Text style={[styles.saveBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>
-            {editTx ? "Update" : "Save"}
-          </Text>
-        </Pressable>
+        <View style={styles.headerRight}>
+          {editTx && (
+            <Pressable
+              onPress={() => setShowDeleteConfirm(true)}
+              accessibilityLabel="Delete transaction"
+              accessibilityRole="button"
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+            >
+              <Feather name="trash-2" size={20} color={theme.expense} />
+            </Pressable>
+          )}
+          <Pressable
+            onPress={handleSave}
+            disabled={!isValid}
+            accessibilityLabel={editTx ? "Update transaction" : "Save transaction"}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.saveBtn,
+              {
+                backgroundColor: isValid ? theme.tint : theme.tint + "44",
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.saveBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>
+              {editTx ? "Update" : "Save"}
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       <KeyboardAwareScrollView
@@ -329,6 +352,36 @@ export default function AddTransactionScreen() {
           </View>
         </View>
       </KeyboardAwareScrollView>
+
+      {showDeleteConfirm && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setShowDeleteConfirm(false)}>
+          <Pressable style={styles.modalOverlay} onPress={() => setShowDeleteConfirm(false)}>
+            <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                Delete Transaction
+              </Text>
+              <Text style={[styles.modalMsg, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                Delete this {editTx?.category} entry? This cannot be undone.
+              </Text>
+              <View style={styles.modalBtns}>
+                <Pressable
+                  onPress={() => setShowDeleteConfirm(false)}
+                  style={({ pressed }) => [styles.modalCancelBtn, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={[styles.modalCancelTxt, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleConfirmDelete}
+                  style={({ pressed }) => [styles.modalDeleteBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}
+                  testID="confirm-delete-btn"
+                >
+                  <Text style={[styles.modalDeleteTxt, { fontFamily: "Inter_600SemiBold" }]}>Delete</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -343,6 +396,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   headerTitle: { fontSize: 17 },
+  headerRight: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12 },
   saveBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -409,4 +463,37 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   inputText: { flex: 1, fontSize: 15 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 24,
+    gap: 12,
+  },
+  modalTitle: { fontSize: 18, textAlign: "center" },
+  modalMsg: { fontSize: 14, textAlign: "center", lineHeight: 20 },
+  modalBtns: { flexDirection: "row", gap: 10, marginTop: 8 },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  modalCancelTxt: { fontSize: 15 },
+  modalDeleteBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  modalDeleteTxt: { color: "#FFF", fontSize: 15 },
 });
