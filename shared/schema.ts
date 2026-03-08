@@ -59,6 +59,8 @@ export const cloudTransactions = pgTable("cloud_transactions", {
   category: text("category").notNull(),
   note: text("note").default(""),
   date: text("date").notNull(),
+  paymentMode: text("payment_mode").default("cash"),
+  attachment: text("attachment").default(""),
   createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -97,6 +99,8 @@ export const insertTransactionSchema = createInsertSchema(cloudTransactions).pic
   category: true,
   note: true,
   date: true,
+  paymentMode: true,
+  attachment: true,
 });
 
 export const insertDebtSchema = createInsertSchema(cloudDebts).pick({

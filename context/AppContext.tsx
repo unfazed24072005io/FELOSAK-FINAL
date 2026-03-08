@@ -21,6 +21,8 @@ export interface Transaction {
   category: string;
   note: string;
   date: string;
+  paymentMode: string;
+  attachment: string;
   createdAt: number;
 }
 
@@ -220,6 +222,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               category: t.category,
               note: t.note || "",
               date: t.date,
+              paymentMode: t.paymentMode || "cash",
+              attachment: t.attachment || "",
               createdAt: new Date(t.createdAt).getTime(),
             }))
           );
@@ -248,7 +252,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(debtsKey(book.id)),
       ]);
       if (loadVersionRef.current !== version) return;
-      setTransactions(txRaw ? JSON.parse(txRaw) : []);
+      const parsedTxs = txRaw ? JSON.parse(txRaw) : [];
+      setTransactions(parsedTxs.map((t: any) => ({
+        ...t,
+        paymentMode: t.paymentMode || "cash",
+        attachment: t.attachment || "",
+      })));
       setDebts(debtsRaw ? JSON.parse(debtsRaw) : []);
     }
   }, []);
@@ -378,6 +387,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               category: data.category,
               note: data.note || "",
               date: data.date,
+              paymentMode: data.paymentMode || "cash",
+              attachment: data.attachment || "",
               createdAt: new Date(data.createdAt).getTime(),
             };
             setTransactions((prev) => [mapped, ...prev]);

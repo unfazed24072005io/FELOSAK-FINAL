@@ -20,6 +20,7 @@ import { useApp, CashBook, Transaction } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import Colors from "@/constants/colors";
 import { formatEGP, formatEGPShort, formatDateGroup, formatTime } from "@/utils/format";
+import { getPaymentModeLabel } from "@/app/add-transaction";
 
 export default function OverviewScreen() {
   const { activeBook } = useApp();
@@ -623,6 +624,7 @@ function EntryRow({
   onPress: () => void;
 }) {
   const isIncome = tx.type === "income";
+  const modeLabel = tx.paymentMode && tx.paymentMode !== "cash" ? getPaymentModeLabel(tx.paymentMode) : null;
   return (
     <Pressable
       onPress={onPress}
@@ -634,26 +636,39 @@ function EntryRow({
       ]}
     >
       <View style={styles.entryLeft}>
-        <View
-          style={[
-            styles.categoryBadge,
-            {
-              backgroundColor: isIncome ? theme.income + "18" : theme.expense + "18",
-              borderColor: isIncome ? theme.income + "44" : theme.expense + "44",
-            },
-          ]}
-        >
-          <Text
+        <View style={styles.entryBadgeRow}>
+          <View
             style={[
-              styles.categoryBadgeText,
+              styles.categoryBadge,
               {
-                color: isIncome ? theme.income : theme.expense,
-                fontFamily: "Inter_500Medium",
+                backgroundColor: isIncome ? theme.income + "18" : theme.expense + "18",
+                borderColor: isIncome ? theme.income + "44" : theme.expense + "44",
               },
             ]}
           >
-            {tx.category}
-          </Text>
+            <Text
+              style={[
+                styles.categoryBadgeText,
+                {
+                  color: isIncome ? theme.income : theme.expense,
+                  fontFamily: "Inter_500Medium",
+                },
+              ]}
+            >
+              {tx.category}
+            </Text>
+          </View>
+          {modeLabel ? (
+            <View style={[styles.paymentBadge, { backgroundColor: theme.tint + "15", borderColor: theme.tint + "33" }]}>
+              <Feather name="credit-card" size={10} color={theme.tint} />
+              <Text style={[styles.paymentBadgeText, { color: theme.tint, fontFamily: "Inter_400Regular" }]}>
+                {modeLabel}
+              </Text>
+            </View>
+          ) : null}
+          {tx.attachment ? (
+            <Feather name="paperclip" size={12} color={theme.textSecondary} />
+          ) : null}
         </View>
         {tx.note ? (
           <Text
@@ -850,6 +865,22 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(128,128,128,0.15)",
   },
   entryLeft: { flex: 1, gap: 4 },
+  entryBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  paymentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 5,
+    borderWidth: 1,
+  },
+  paymentBadgeText: { fontSize: 10 },
   categoryBadge: {
     alignSelf: "flex-start",
     paddingHorizontal: 10,

@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 import { useApp, Transaction } from "@/context/AppContext";
 import Colors from "@/constants/colors";
 import { formatEGP, formatDate } from "@/utils/format";
+import { getPaymentModeLabel } from "@/app/add-transaction";
 
 type Filter = "all" | "income" | "expense";
 
@@ -245,18 +246,34 @@ function TxItem({
         />
       </View>
       <View style={styles.txContent}>
-        <Text
-          style={[styles.txCat, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
-          numberOfLines={1}
-        >
-          {tx.category}
-        </Text>
+        <View style={styles.txCatRow}>
+          <Text
+            style={[styles.txCat, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
+            numberOfLines={1}
+          >
+            {tx.category}
+          </Text>
+          {tx.attachment ? (
+            <Feather name="paperclip" size={12} color={theme.textSecondary} />
+          ) : null}
+        </View>
         <View style={styles.txMeta}>
           <Text
             style={[styles.txDate, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
           >
             {formatDate(tx.date)}
           </Text>
+          {tx.paymentMode && tx.paymentMode !== "cash" ? (
+            <>
+              <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
+              <Text
+                style={[styles.txPayMode, { color: theme.tint, fontFamily: "Inter_500Medium" }]}
+                numberOfLines={1}
+              >
+                {getPaymentModeLabel(tx.paymentMode)}
+              </Text>
+            </>
+          ) : null}
           {tx.note ? (
             <>
               <Text style={[styles.dot, { color: theme.textSecondary }]}>·</Text>
@@ -349,9 +366,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   txContent: { flex: 1 },
+  txCatRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   txCat: { fontSize: 15, marginBottom: 3 },
   txMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
   txDate: { fontSize: 12 },
+  txPayMode: { fontSize: 12, flexShrink: 1 },
   dot: { fontSize: 12 },
   txNote: { fontSize: 12, flexShrink: 1 },
   txRight: { alignItems: "flex-end" },

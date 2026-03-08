@@ -1,9 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
+  Image,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,6 +17,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { router, useLocalSearchParams } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import * as ImagePicker from "expo-image-picker";
 import { useApp, TransactionType } from "@/context/AppContext";
 import Colors from "@/constants/colors";
 import { today, parseAmount, isValidDateStr } from "@/utils/format";
@@ -27,6 +30,23 @@ const EXPENSE_CATEGORIES = [
   "Inventory", "Salaries", "Rent", "Utilities", "Marketing", "Transport",
   "Maintenance", "Taxes", "Supplies", "Equipment", "Other Expense",
 ];
+
+const PAYMENT_MODES = [
+  { id: "cash", label: "Cash", icon: "dollar-sign" as const },
+  { id: "instapay", label: "InstaPay", icon: "zap" as const },
+  { id: "vodafone_cash", label: "Vodafone Cash", icon: "smartphone" as const },
+  { id: "fawry", label: "Fawry", icon: "credit-card" as const },
+  { id: "bank_transfer", label: "Bank Transfer", icon: "briefcase" as const },
+  { id: "international", label: "International Transfer", icon: "globe" as const },
+  { id: "cheque", label: "Cheque", icon: "file-text" as const },
+  { id: "other", label: "Other", icon: "more-horizontal" as const },
+];
+
+function getPaymentModeLabel(id: string): string {
+  return PAYMENT_MODES.find((m) => m.id === id)?.label || id;
+}
+
+export { PAYMENT_MODES, getPaymentModeLabel };
 
 export default function AddTransactionScreen() {
   const insets = useSafeAreaInsets();
@@ -48,6 +68,9 @@ export default function AddTransactionScreen() {
   const [category, setCategory] = useState(editTx?.category ?? "");
   const [note, setNote] = useState(editTx?.note ?? "");
   const [date, setDate] = useState(editTx?.date ?? today());
+  const [paymentMode, setPaymentMode] = useState(editTx?.paymentMode ?? "cash");
+  const [attachment, setAttachment] = useState(editTx?.attachment ?? "");
+  const [showImagePreview, setShowImagePreview] = useState(false);
 
   const categories = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
@@ -76,19 +99,63 @@ export default function AddTransactionScreen() {
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     if (editTx) {
-      updateTransaction(editTx.id, { type, amount: parsedAmount, category, note, date });
+      updateTransaction(editTx.id, { type, amount: parsedAmount, category, note, date, paymentMode, attachment });
     } else {
-      addTransaction({ type, amount: parsedAmount, category, note, date });
+      addTransaction({ type, amount: parsedAmount, category, note, date, paymentMode, attachment });
     }
     router.back();
-  }, [isValid, parsedAmount, dateValid, type, category, note, date, editTx, addTransaction, updateTransaction]);
+  }, [isValid, parsedAmount, dateValid, type, category, note, date, paymentMode, attachment, editTx, addTransaction, updateTransaction]);
+
+  const pickImage = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.5,
+      base64: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      if (asset.base64) {
+        setAttachment(`data:image/jpeg;base64,${asset.base64}`);
+      } else {
+        setAttachment(asset.uri);
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, []);
+
+  const takePhoto = useCallback(async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Required", "Camera access is needed to take photos.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.5,
+      base64: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      if (asset.base64) {
+        setAttachment(`data:image/jpeg;base64,${asset.base64}`);
+      } else {
+        setAttachment(asset.uri);
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, []);
+
+  const removeAttachment = useCallback(() => {
+    setAttachment("");
+    Haptics.selectionAsync();
+  }, []);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Handle / Header */}
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <Pressable onPress={() => router.back()} accessibilityLabel="Close" accessibilityRole="button">
           <Feather name="x" size={22} color={theme.textSecondary} />
@@ -134,7 +201,6 @@ export default function AddTransactionScreen() {
         keyboardShouldPersistTaps="handled"
         bottomOffset={20}
       >
-        {/* Type Toggle */}
         <View
           style={[
             styles.typeToggle,
@@ -205,7 +271,6 @@ export default function AddTransactionScreen() {
           </Pressable>
         </View>
 
-        {/* Amount */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
             Amount (EGP)
@@ -236,7 +301,52 @@ export default function AddTransactionScreen() {
           </View>
         </View>
 
-        {/* Category */}
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+            Payment Mode
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.paymentScroll} contentContainerStyle={styles.paymentScrollContent}>
+            {PAYMENT_MODES.map((mode) => {
+              const selected = paymentMode === mode.id;
+              return (
+                <Pressable
+                  key={mode.id}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setPaymentMode(mode.id);
+                  }}
+                  style={({ pressed }) => [
+                    styles.paymentChip,
+                    {
+                      backgroundColor: selected ? theme.tint + "22" : theme.card,
+                      borderColor: selected ? theme.tint + "88" : theme.border,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                  testID={`payment-mode-${mode.id}`}
+                >
+                  <Feather
+                    name={mode.icon}
+                    size={14}
+                    color={selected ? theme.tint : theme.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.paymentLabel,
+                      {
+                        color: selected ? theme.tint : theme.text,
+                        fontFamily: selected ? "Inter_600SemiBold" : "Inter_400Regular",
+                      },
+                    ]}
+                  >
+                    {mode.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
             Category
@@ -290,7 +400,6 @@ export default function AddTransactionScreen() {
           </View>
         </View>
 
-        {/* Date */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
             Date
@@ -316,7 +425,6 @@ export default function AddTransactionScreen() {
           </View>
         </View>
 
-        {/* Note */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
             Note (optional)
@@ -351,6 +459,57 @@ export default function AddTransactionScreen() {
             />
           </View>
         </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+            Attachment (optional)
+          </Text>
+          {attachment ? (
+            <View style={[styles.attachmentPreview, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Pressable onPress={() => setShowImagePreview(true)} style={styles.attachmentThumb}>
+                <Image source={{ uri: attachment }} style={styles.thumbImage} resizeMode="cover" />
+              </Pressable>
+              <View style={styles.attachmentInfo}>
+                <Feather name="paperclip" size={14} color={theme.tint} />
+                <Text style={[styles.attachmentText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
+                  Receipt attached
+                </Text>
+              </View>
+              <Pressable onPress={removeAttachment} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
+                <Feather name="x-circle" size={20} color={theme.expense} />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.attachmentActions}>
+              <Pressable
+                onPress={takePhoto}
+                style={({ pressed }) => [
+                  styles.attachBtn,
+                  { backgroundColor: theme.card, borderColor: theme.border, opacity: pressed ? 0.7 : 1 },
+                ]}
+                testID="take-photo-btn"
+              >
+                <Feather name="camera" size={20} color={theme.tint} />
+                <Text style={[styles.attachBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
+                  Take Photo
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={pickImage}
+                style={({ pressed }) => [
+                  styles.attachBtn,
+                  { backgroundColor: theme.card, borderColor: theme.border, opacity: pressed ? 0.7 : 1 },
+                ]}
+                testID="pick-image-btn"
+              >
+                <Feather name="image" size={20} color={theme.tint} />
+                <Text style={[styles.attachBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
+                  Upload File
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
       </KeyboardAwareScrollView>
 
       {showDeleteConfirm && (
@@ -382,6 +541,22 @@ export default function AddTransactionScreen() {
           </Pressable>
         </Modal>
       )}
+
+      {showImagePreview && attachment ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setShowImagePreview(false)}>
+          <Pressable style={styles.imagePreviewOverlay} onPress={() => setShowImagePreview(false)}>
+            <View style={styles.imagePreviewContainer}>
+              <Image source={{ uri: attachment }} style={styles.fullImage} resizeMode="contain" />
+              <Pressable
+                onPress={() => setShowImagePreview(false)}
+                style={[styles.closePreviewBtn, { backgroundColor: theme.card }]}
+              >
+                <Feather name="x" size={24} color={theme.text} />
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -441,6 +616,24 @@ const styles = StyleSheet.create({
     fontSize: 32,
     paddingVertical: 12,
   },
+  paymentScroll: {
+    marginHorizontal: -20,
+  },
+  paymentScrollContent: {
+    paddingHorizontal: 20,
+    gap: 8,
+    flexDirection: "row",
+  },
+  paymentChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  paymentLabel: { fontSize: 13 },
   catGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -463,6 +656,72 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   inputText: { flex: 1, fontSize: 15 },
+  attachmentActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  attachBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderStyle: "dashed" as const,
+  },
+  attachBtnText: { fontSize: 14 },
+  attachmentPreview: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 10,
+  },
+  attachmentThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  thumbImage: {
+    width: 48,
+    height: 48,
+  },
+  attachmentInfo: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  attachmentText: { fontSize: 14 },
+  imagePreviewOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  imagePreviewContainer: {
+    width: "90%",
+    height: "70%",
+    position: "relative",
+  },
+  fullImage: {
+    width: "100%",
+    height: "100%",
+  },
+  closePreviewBtn: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",

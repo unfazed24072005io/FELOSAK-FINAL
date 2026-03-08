@@ -249,13 +249,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  const VALID_PAYMENT_MODES = ["cash", "instapay", "vodafone_cash", "fawry", "bank_transfer", "international", "cheque", "other"];
+
   app.post("/api/books/:id/transactions", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      const { type, amount, category, note, date } = req.body;
+      const { type, amount, category, note, date, paymentMode, attachment } = req.body;
       if (!type || !amount || !category || !date) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-      const tx = await storage.addTransaction(req.params.id, { type, amount: String(amount), category, note: note || "", date }, req.session.userId!);
+      const mode = paymentMode && VALID_PAYMENT_MODES.includes(paymentMode) ? paymentMode : "cash";
+      const attach = typeof attachment === "string" ? attachment.substring(0, 5 * 1024 * 1024) : "";
+      const tx = await storage.addTransaction(req.params.id, { type, amount: String(amount), category, note: note || "", date, paymentMode: mode, attachment: attach }, req.session.userId!);
       res.json(tx);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to add transaction" });
@@ -264,13 +268,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/books/:id/transactions/:txId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      const { type, amount, category, note, date } = req.body;
+      const { type, amount, category, note, date, paymentMode, attachment } = req.body;
       const updateData: any = {};
       if (type) updateData.type = type;
       if (amount !== undefined) updateData.amount = String(amount);
       if (category) updateData.category = category;
       if (note !== undefined) updateData.note = note;
       if (date) updateData.date = date;
+      if (paymentMode !== undefined) updateData.paymentMode = VALID_PAYMENT_MODES.includes(paymentMode) ? paymentMode : "cash";
+      if (attachment !== undefined) updateData.attachment = typeof attachment === "string" ? attachment.substring(0, 5 * 1024 * 1024) : "";
       const tx = await storage.updateTransaction(req.params.txId, req.params.id, updateData);
       res.json(tx);
     } catch (e: any) {

@@ -68,6 +68,10 @@ A fully functional cash book application built for Egyptian SMEs (Small & Medium
 - Add income and expense transactions with categories
 - EGP (ج.م) formatting with proper thousands separators
 - Date tracking for every entry
+- Payment mode selection: Cash, InstaPay, Vodafone Cash, Fawry, Bank Transfer, International Transfer, Cheque, Other
+- Attachment support: Take photo or upload image (bills, invoices, receipts) as proof of payment
+- Payment mode badges displayed on dashboard entries and transaction list
+- Attachment indicator (paperclip icon) on entries with attached proof
 
 ### Dashboard (Professional Expense Manager Style)
 - Header with back arrow, book title, subtitle (role/type), add member icon, three-dot menu
