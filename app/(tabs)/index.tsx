@@ -276,6 +276,9 @@ function BookCard({
   );
 }
 
+type DashFilter = "all" | "income" | "expense";
+type DashPayFilter = "all" | string;
+
 function BookDashboard() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -292,19 +295,41 @@ function BookDashboard() {
   } = useApp();
 
   const [menuVisible, setMenuVisible] = useState(false);
+  const [entryFilter, setEntryFilter] = useState<DashFilter>("all");
+  const [payFilter, setPayFilter] = useState<DashPayFilter>("all");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
+  const filtered = useMemo(() => {
+    let result = transactions;
+    if (entryFilter !== "all") {
+      result = result.filter((t) => t.type === entryFilter);
+    }
+    if (payFilter !== "all") {
+      result = result.filter((t) => (t.paymentMode || "cash") === payFilter);
+    }
+    return result;
+  }, [transactions, entryFilter, payFilter]);
+
+  const filteredTotals = useMemo(() => {
+    let inc = 0, exp = 0;
+    filtered.forEach((t) => {
+      if (t.type === "income") inc += t.amount;
+      else exp += t.amount;
+    });
+    return { income: inc, expense: exp, balance: inc - exp };
+  }, [filtered]);
+
   const sections = useMemo(() => {
     const grouped: Record<string, Transaction[]> = {};
-    transactions.forEach((tx) => {
+    filtered.forEach((tx) => {
       const key = tx.date;
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(tx);
     });
     const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
-    let runningBalance = totalBalance;
+    let runningBalance = filteredTotals.balance;
     const result: { title: string; data: (Transaction & { runningBalance: number })[] }[] = [];
     for (const date of sortedDates) {
       const items = grouped[date].sort((a, b) => b.createdAt - a.createdAt);
@@ -316,7 +341,7 @@ function BookDashboard() {
       result.push({ title: formatDateGroup(date), data: withBalance });
     }
     return result;
-  }, [transactions, totalBalance]);
+  }, [filtered, filteredTotals.balance]);
 
   const handleDeleteAll = useCallback(() => {
     setMenuVisible(false);
@@ -384,6 +409,15 @@ function BookDashboard() {
             </Pressable>
           )}
           <Pressable
+            onPress={() => router.push("/generate-report" as any)}
+            accessibilityLabel="Generate report"
+            accessibilityRole="button"
+            hitSlop={6}
+            testID="pdf-report-btn"
+          >
+            <Feather name="file-text" size={20} color={theme.expense} />
+          </Pressable>
+          <Pressable
             onPress={() => setMenuVisible(true)}
             accessibilityLabel="Book menu"
             accessibilityRole="button"
@@ -393,6 +427,41 @@ function BookDashboard() {
           </Pressable>
         </View>
       </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar} contentContainerStyle={styles.filterBarContent}>
+        <Pressable
+          onPress={() => { Haptics.selectionAsync(); setEntryFilter(entryFilter === "all" ? "income" : entryFilter === "income" ? "expense" : "all"); }}
+          style={[styles.filterChip, { backgroundColor: theme.card, borderColor: entryFilter !== "all" ? theme.tint + "88" : theme.border }]}
+        >
+          <Text style={[styles.filterChipText, { color: entryFilter !== "all" ? theme.tint : theme.text, fontFamily: entryFilter !== "all" ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
+            {entryFilter === "all" ? "Entry Type" : entryFilter === "income" ? "Cash In" : "Cash Out"}
+          </Text>
+          <Feather name="chevron-down" size={12} color={entryFilter !== "all" ? theme.tint : theme.textSecondary} />
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            Haptics.selectionAsync();
+            const modes = ["all", "cash", "instapay", "vodafone_cash", "fawry", "bank_transfer", "international", "cheque", "other"];
+            const idx = modes.indexOf(payFilter);
+            setPayFilter(modes[(idx + 1) % modes.length]);
+          }}
+          style={[styles.filterChip, { backgroundColor: theme.card, borderColor: payFilter !== "all" ? theme.tint + "88" : theme.border }]}
+        >
+          <Text style={[styles.filterChipText, { color: payFilter !== "all" ? theme.tint : theme.text, fontFamily: payFilter !== "all" ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
+            {payFilter === "all" ? "Payment Mode" : getPaymentModeLabel(payFilter)}
+          </Text>
+          <Feather name="chevron-down" size={12} color={payFilter !== "all" ? theme.tint : theme.textSecondary} />
+        </Pressable>
+        {(entryFilter !== "all" || payFilter !== "all") && (
+          <Pressable
+            onPress={() => { Haptics.selectionAsync(); setEntryFilter("all"); setPayFilter("all"); }}
+            style={[styles.filterChip, { backgroundColor: theme.expense + "15", borderColor: theme.expense + "44" }]}
+          >
+            <Feather name="x" size={14} color={theme.expense} />
+            <Text style={[styles.filterChipText, { color: theme.expense, fontFamily: "Inter_500Medium" }]}>Clear</Text>
+          </Pressable>
+        )}
+      </ScrollView>
 
       <SectionList
         sections={sections}
@@ -410,12 +479,12 @@ function BookDashboard() {
                   style={[
                     styles.summaryValue,
                     {
-                      color: totalBalance >= 0 ? theme.text : theme.expense,
+                      color: filteredTotals.balance >= 0 ? theme.text : theme.expense,
                       fontFamily: "Inter_700Bold",
                     },
                   ]}
                 >
-                  {formatEGP(totalBalance)}
+                  {formatEGP(filteredTotals.balance)}
                 </Text>
               </View>
               <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
@@ -424,7 +493,7 @@ function BookDashboard() {
                   Total In (+)
                 </Text>
                 <Text style={[styles.summaryIncome, { color: theme.income, fontFamily: "Inter_600SemiBold" }]}>
-                  {formatEGP(totalIncome)}
+                  {formatEGP(filteredTotals.income)}
                 </Text>
               </View>
               <View style={styles.summaryRow}>
@@ -432,7 +501,7 @@ function BookDashboard() {
                   Total Out (-)
                 </Text>
                 <Text style={[styles.summaryExpense, { color: theme.expense, fontFamily: "Inter_600SemiBold" }]}>
-                  {formatEGP(totalExpense)}
+                  {formatEGP(filteredTotals.expense)}
                 </Text>
               </View>
               <Pressable
@@ -447,7 +516,7 @@ function BookDashboard() {
             </View>
 
             <Text style={[styles.entryCount, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              Showing {transactions.length} {transactions.length === 1 ? "entry" : "entries"}
+              Showing {filtered.length} {filtered.length === 1 ? "entry" : "entries"}
             </Text>
           </View>
         }
@@ -566,6 +635,16 @@ function BookDashboard() {
               onPress={() => {
                 setMenuVisible(false);
                 router.push("/(tabs)/analytics" as any);
+              }}
+            />
+            <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
+            <MenuItem
+              icon="download"
+              label="Generate Report"
+              theme={theme}
+              onPress={() => {
+                setMenuVisible(false);
+                router.push("/generate-report" as any);
               }}
             />
             <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
@@ -799,6 +878,27 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
+
+  filterBar: {
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(128,128,128,0.15)",
+  },
+  filterBarContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+    flexDirection: "row",
+  },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  filterChipText: { fontSize: 13 },
 
   dashHeader: {
     flexDirection: "row",

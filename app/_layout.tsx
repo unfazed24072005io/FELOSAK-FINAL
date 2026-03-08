@@ -83,6 +83,15 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen
+        name="generate-report"
+        options={{
+          presentation: "formSheet",
+          headerShown: false,
+          sheetAllowedDetents: [0.92, 1.0],
+          sheetGrabberVisible: true,
+        }}
+      />
+      <Stack.Screen
         name="book-members"
         options={{
           presentation: "modal",

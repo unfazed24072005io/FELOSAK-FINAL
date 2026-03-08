@@ -74,12 +74,23 @@ A fully functional cash book application built for Egyptian SMEs (Small & Medium
 - Attachment indicator (paperclip icon) on entries with attached proof
 
 ### Dashboard (Professional Expense Manager Style)
-- Header with back arrow, book title, subtitle (role/type), add member icon, three-dot menu
-- Balance summary card: Net Balance, Total In (+), Total Out (-), VIEW REPORTS link
+- Header with back arrow, book title, subtitle (role/type), add member icon, PDF report icon, three-dot menu
+- Filter bar: Entry Type (All/Cash In/Cash Out), Payment Mode filter, Clear button
+- Balance summary card: Net Balance, Total In (+), Total Out (-), VIEW REPORTS link (totals update with filters)
+- "Showing X entries" counter (reflects filtered count)
 - Date-grouped entry list with category badges, EGP amounts, running balance per entry
 - "Entry by You" attribution with timestamps
 - Sticky bottom bar: CASH IN (green) and CASH OUT (red) action buttons
-- Three-dot menu: Book Settings, Team Members (cloud), View Reports, Delete All Entries
+- Three-dot menu: Book Settings, Team Members (cloud), View Reports, Excel Report, Delete All Entries
+
+### Generate Report Screen
+- Filter summary (Duration, Entry Type, Payment Mode)
+- Entry Type filter chips (All/Cash In/Cash Out)
+- Payment Mode filter chips (scrollable)
+- Report type selection: All Entries Report, Day-wise Summary, Category-wise Summary
+- Stats preview (matched entries count, totals)
+- GENERATE EXCEL button (CSV download/share)
+- GENERATE PDF button (HTML-to-PDF with professional styling)
 
 ### Transactions Screen
 - Full transaction list with filter by All / Income / Expense
@@ -117,6 +128,7 @@ app/
     analytics.tsx      # Charts & analytics for active book
   add-transaction.tsx  # Add/edit transaction (form sheet)
   add-debt.tsx         # Add/edit AR/AP entry (form sheet)
+  generate-report.tsx  # Generate Excel/PDF reports (form sheet)
   settings.tsx         # App settings (PIN)
   auth.tsx             # Login/register screen (modal)
   account.tsx          # Account info + sign out (modal)
