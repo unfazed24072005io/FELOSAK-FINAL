@@ -32,8 +32,20 @@ export interface Debt {
   name: string;
   amount: number;
   note: string;
+  phone: string;
   dueDate: string;
   settled: boolean;
+  createdAt: number;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  image: string;
+  category: string;
+  inStock: boolean;
   createdAt: number;
 }
 
@@ -55,6 +67,7 @@ interface AppContextValue {
   updateBook: (id: string, data: { name?: string; description?: string }) => Promise<void>;
   transactions: Transaction[];
   debts: Debt[];
+  products: Product[];
   pin: string | null;
   isLocked: boolean;
   addTransaction: (t: Omit<Transaction, "id" | "createdAt">) => void;
@@ -63,6 +76,9 @@ interface AppContextValue {
   addDebt: (d: Omit<Debt, "id" | "createdAt">) => void;
   updateDebt: (id: string, d: Partial<Debt>) => void;
   deleteDebt: (id: string) => void;
+  addProduct: (p: Omit<Product, "id" | "createdAt">) => void;
+  updateProduct: (id: string, p: Partial<Product>) => void;
+  deleteProduct: (id: string) => void;
   setPin: (pin: string | null) => void;
   unlock: (pin: string) => boolean;
   lock: () => void;
@@ -90,6 +106,9 @@ function txKey(bookId: string) {
 function debtsKey(bookId: string) {
   return `misr_debts_${bookId}`;
 }
+function productsKey(bookId: string) {
+  return `misr_products_${bookId}`;
+}
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -98,6 +117,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activeBook, setActiveBookState] = useState<CashBook | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [pin, setPinState] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [isLoadingBooks, setIsLoadingBooks] = useState(true);
@@ -110,6 +130,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setActiveBookState(null);
         setTransactions([]);
         setDebts([]);
+        setProducts([]);
       }
     }
   }, [user]);
@@ -207,9 +228,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const baseUrl = getApiUrl();
         const txUrl = new URL(`/api/books/${book.id}/transactions`, baseUrl);
         const debtsUrl = new URL(`/api/books/${book.id}/debts`, baseUrl);
-        const [txRes, debtsRes] = await Promise.all([
+        const prodsUrl = new URL(`/api/books/${book.id}/products`, baseUrl);
+        const [txRes, debtsRes, prodsRes] = await Promise.all([
           fetch(txUrl.toString(), { credentials: "include" }),
           fetch(debtsUrl.toString(), { credentials: "include" }),
+          fetch(prodsUrl.toString(), { credentials: "include" }),
         ]);
         if (loadVersionRef.current !== version) return;
         if (txRes.ok) {
@@ -237,9 +260,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               name: d.name,
               amount: parseFloat(d.amount),
               note: d.note || "",
+              phone: d.phone || "",
               dueDate: d.dueDate || "",
               settled: d.settled,
               createdAt: new Date(d.createdAt).getTime(),
+            }))
+          );
+        }
+        if (prodsRes.ok) {
+          const prodsData = await prodsRes.json();
+          setProducts(
+            prodsData.map((p: any) => ({
+              id: p.id,
+              name: p.name,
+              description: p.description || "",
+              price: parseFloat(p.price),
+              image: p.image || "",
+              category: p.category || "",
+              inStock: p.inStock !== false,
+              createdAt: new Date(p.createdAt).getTime(),
             }))
           );
         }
@@ -247,9 +286,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.error("Failed to load cloud book data");
       }
     } else {
-      const [txRaw, debtsRaw] = await Promise.all([
+      const [txRaw, debtsRaw, prodsRaw] = await Promise.all([
         AsyncStorage.getItem(txKey(book.id)),
         AsyncStorage.getItem(debtsKey(book.id)),
+        AsyncStorage.getItem(productsKey(book.id)),
       ]);
       if (loadVersionRef.current !== version) return;
       const parsedTxs = txRaw ? JSON.parse(txRaw) : [];
@@ -258,7 +298,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         paymentMode: t.paymentMode || "cash",
         attachment: t.attachment || "",
       })));
-      setDebts(debtsRaw ? JSON.parse(debtsRaw) : []);
+      setDebts((debtsRaw ? JSON.parse(debtsRaw) : []).map((d: any) => ({ ...d, phone: d.phone || "" })));
+      setProducts(prodsRaw ? JSON.parse(prodsRaw) : []);
     }
   }, []);
 
@@ -268,6 +309,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveBookState(book);
       setTransactions([]);
       setDebts([]);
+      setProducts([]);
       if (book) {
         loadBookData(book, version);
       }
@@ -366,6 +408,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!activeBook) return;
       if (!activeBook.isCloud) {
         await AsyncStorage.setItem(debtsKey(activeBook.id), JSON.stringify(ds));
+      }
+    },
+    [activeBook]
+  );
+
+  const saveProducts = useCallback(
+    async (ps: Product[]) => {
+      if (!activeBook) return;
+      if (!activeBook.isCloud) {
+        await AsyncStorage.setItem(productsKey(activeBook.id), JSON.stringify(ps));
       }
     },
     [activeBook]
@@ -472,6 +524,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               name: data.name,
               amount: parseFloat(data.amount),
               note: data.note || "",
+              phone: data.phone || "",
               dueDate: data.dueDate || "",
               settled: data.settled,
               createdAt: new Date(data.createdAt).getTime(),
@@ -544,6 +597,93 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [activeBook, saveDebts]
   );
 
+  const addProduct = useCallback(
+    (p: Omit<Product, "id" | "createdAt">) => {
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            const res = await apiRequest("POST", `/api/books/${bookId}/products`, p);
+            const data = await res.json();
+            const mapped: Product = {
+              id: data.id,
+              name: data.name,
+              description: data.description || "",
+              price: parseFloat(data.price),
+              image: data.image || "",
+              category: data.category || "",
+              inStock: data.inStock !== false,
+              createdAt: new Date(data.createdAt).getTime(),
+            };
+            setProducts((prev) => [mapped, ...prev]);
+          } catch (e) {
+            console.error("Failed to add cloud product", e);
+          }
+        })();
+      } else {
+        setProducts((prev) => {
+          const next = [{ ...p, id: genId(), createdAt: Date.now() }, ...prev];
+          saveProducts(next);
+          return next;
+        });
+      }
+    },
+    [activeBook, saveProducts]
+  );
+
+  const updateProduct = useCallback(
+    (id: string, p: Partial<Product>) => {
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            await apiRequest("PUT", `/api/books/${bookId}/products/${id}`, p);
+            setProducts((prev) =>
+              prev.map((prod) => (prod.id === id ? { ...prod, ...p } : prod))
+            );
+          } catch (e) {
+            console.error("Failed to update cloud product", e);
+          }
+        })();
+      } else {
+        setProducts((prev) => {
+          const next = prev.map((prod) =>
+            prod.id === id ? { ...prod, ...p } : prod
+          );
+          saveProducts(next);
+          return next;
+        });
+      }
+    },
+    [activeBook, saveProducts]
+  );
+
+  const deleteProduct = useCallback(
+    (id: string) => {
+      if (!activeBook) return;
+      if (activeBook.isCloud) {
+        const bookId = activeBook.id;
+        (async () => {
+          try {
+            await apiRequest("DELETE", `/api/books/${bookId}/products/${id}`);
+            setProducts((prev) => prev.filter((p) => p.id !== id));
+          } catch (e) {
+            console.error("Failed to delete cloud product", e);
+          }
+        })();
+      } else {
+        setProducts((prev) => {
+          const next = prev.filter((p) => p.id !== id);
+          saveProducts(next);
+          return next;
+        });
+      }
+    },
+    [activeBook, saveProducts]
+  );
+
   const setPin = useCallback(async (newPin: string | null) => {
     setPinState(newPin);
     if (newPin) {
@@ -592,6 +732,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateBook: updateBookMeta,
       transactions,
       debts,
+      products,
       pin,
       isLocked,
       addTransaction,
@@ -600,6 +741,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addDebt,
       updateDebt,
       deleteDebt,
+      addProduct,
+      updateProduct,
+      deleteProduct,
       setPin,
       unlock,
       lock,
@@ -618,6 +762,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updateBookMeta,
       transactions,
       debts,
+      products,
       pin,
       isLocked,
       addTransaction,
@@ -626,6 +771,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addDebt,
       updateDebt,
       deleteDebt,
+      addProduct,
+      updateProduct,
+      deleteProduct,
       setPin,
       unlock,
       lock,

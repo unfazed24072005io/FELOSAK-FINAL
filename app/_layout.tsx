@@ -15,6 +15,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { AuthProvider } from "@/context/AuthContext";
 import { AppProvider } from "@/context/AppContext";
+import { LanguageProvider } from "@/context/LanguageContext";
 import { PinLockOverlay } from "@/components/PinLockOverlay";
 import { useColorScheme } from "react-native";
 
@@ -92,6 +93,15 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen
+        name="add-product"
+        options={{
+          presentation: "formSheet",
+          headerShown: false,
+          sheetAllowedDetents: [0.85, 1.0],
+          sheetGrabberVisible: true,
+        }}
+      />
+      <Stack.Screen
         name="book-members"
         options={{
           presentation: "modal",
@@ -125,8 +135,10 @@ export default function RootLayout() {
           <KeyboardProvider>
             <AuthProvider>
               <AppProvider>
-                <RootLayoutNav />
-                <PinLockOverlay />
+                <LanguageProvider>
+                  <RootLayoutNav />
+                  <PinLockOverlay />
+                </LanguageProvider>
               </AppProvider>
             </AuthProvider>
           </KeyboardProvider>

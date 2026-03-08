@@ -16,6 +16,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp } from "@/context/AppContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { parseAmount, isValidDateStr } from "@/utils/format";
 
@@ -25,6 +26,7 @@ export default function AddDebtScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { addDebt, updateDebt, deleteDebt, debts } = useApp();
+  const { t } = useLanguage();
   const params = useLocalSearchParams<{ editId?: string }>();
 
   const editDebt = useMemo(
@@ -37,6 +39,7 @@ export default function AddDebtScreen() {
   );
   const [name, setName] = useState(editDebt?.name ?? "");
   const [amount, setAmount] = useState(editDebt ? String(editDebt.amount) : "");
+  const [phone, setPhone] = useState(editDebt?.phone ?? "");
   const [note, setNote] = useState(editDebt?.note ?? "");
   const [dueDate, setDueDate] = useState(editDebt?.dueDate ?? "");
 
@@ -73,6 +76,7 @@ export default function AddDebtScreen() {
         name: name.trim(),
         amount: parsedAmount,
         note,
+        phone,
         dueDate,
       });
     } else {
@@ -81,12 +85,13 @@ export default function AddDebtScreen() {
         name: name.trim(),
         amount: parsedAmount,
         note,
+        phone,
         dueDate,
         settled: false,
       });
     }
     router.back();
-  }, [isValid, parsedAmount, dueDateValid, direction, name, note, dueDate, editDebt, addDebt, updateDebt]);
+  }, [isValid, parsedAmount, dueDateValid, direction, name, phone, note, dueDate, editDebt, addDebt, updateDebt]);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -228,6 +233,33 @@ export default function AddDebtScreen() {
               onChangeText={setName}
               placeholder="Enter name..."
               placeholderTextColor={theme.textSecondary + "88"}
+              returnKeyType="next"
+            />
+          </View>
+        </View>
+
+        {/* Phone */}
+        <View style={styles.section}>
+          <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+            {t("phone")} (optional)
+          </Text>
+          <View
+            style={[
+              styles.inputBox,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
+          >
+            <Feather name="phone" size={16} color={theme.textSecondary} />
+            <TextInput
+              style={[
+                styles.inputText,
+                { color: theme.text, fontFamily: "Inter_400Regular" },
+              ]}
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="Enter phone..."
+              placeholderTextColor={theme.textSecondary + "88"}
+              keyboardType="phone-pad"
               returnKeyType="next"
             />
           </View>

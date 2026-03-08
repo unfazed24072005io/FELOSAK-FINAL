@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
   FlatList,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,6 +15,7 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp, Debt } from "@/context/AppContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP, formatDate } from "@/utils/format";
 
@@ -25,6 +27,7 @@ export default function DebtorsScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { debts, deleteDebt, updateDebt, activeBook } = useApp();
+  const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<TabDir>("owed_to_me");
 
   if (!activeBook) {
@@ -32,7 +35,7 @@ export default function DebtorsScreen() {
     return (
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>AR / AP</Text>
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("arAp")}</Text>
         </View>
         <View style={styles.emptyContent}>
           <Feather name="book-open" size={44} color={theme.textSecondary} />
@@ -104,14 +107,14 @@ export default function DebtorsScreen() {
         onEdit={() =>
           router.push({ pathname: "/add-debt", params: { editId: item.id } })
         }
+        t={t}
       />
     ),
-    [theme, handleSettle, handleDelete]
+    [theme, handleSettle, handleDelete, t]
   );
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
       <View
         style={[
           styles.header,
@@ -128,7 +131,7 @@ export default function DebtorsScreen() {
             { color: theme.text, fontFamily: "Inter_700Bold" },
           ]}
         >
-          AR / AP
+          {t("arAp")}
         </Text>
         <Pressable
           onPress={() => {
@@ -144,7 +147,6 @@ export default function DebtorsScreen() {
         </Pressable>
       </View>
 
-      {/* Summary Cards */}
       <View style={[styles.summaryRow, { paddingHorizontal: 20, paddingVertical: 14 }]}>
         <Pressable
           onPress={() => {
@@ -174,7 +176,7 @@ export default function DebtorsScreen() {
               },
             ]}
           >
-            Owed to Me
+            {t("owedToMe")}
           </Text>
           <Text
             style={[
@@ -211,7 +213,7 @@ export default function DebtorsScreen() {
               { color: theme.expense, fontFamily: "Inter_500Medium" },
             ]}
           >
-            I Owe
+            {t("iOwe")}
           </Text>
           <Text
             style={[
@@ -243,7 +245,7 @@ export default function DebtorsScreen() {
                 { color: theme.textSecondary, fontFamily: "Inter_500Medium" },
               ]}
             >
-              Outstanding ({filtered.length})
+              {t("outstanding")} ({filtered.length})
             </Text>
           ) : null
         }
@@ -260,7 +262,7 @@ export default function DebtorsScreen() {
                   },
                 ]}
               >
-                Settled ({settled.length})
+                {t("settled")} ({settled.length})
               </Text>
               {settled.map((d) => (
                 <DebtCard
@@ -275,6 +277,7 @@ export default function DebtorsScreen() {
                       params: { editId: d.id },
                     })
                   }
+                  t={t}
                 />
               ))}
             </View>
@@ -301,7 +304,7 @@ export default function DebtorsScreen() {
               ]}
             >
               <Text style={[styles.emptyBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>
-                Add Entry
+                {t("addEntry")}
               </Text>
             </Pressable>
           </View>
@@ -320,17 +323,39 @@ function DebtCard({
   onSettle,
   onDelete,
   onEdit,
+  t,
 }: {
   debt: Debt;
   theme: typeof Colors.dark;
   onSettle: (d: Debt) => void;
   onDelete: (d: Debt) => void;
   onEdit: () => void;
+  t: (key: any, params?: Record<string, string | number>) => string;
 }) {
   const isOwedToMe = debt.direction === "owed_to_me";
   const color = isOwedToMe ? theme.income : theme.expense;
   const isOverdue =
     !debt.settled && debt.dueDate && new Date(debt.dueDate) < new Date();
+
+  const getReminderMessage = () => {
+    return t("reminderMessage", {
+      name: debt.name,
+      amount: formatEGP(debt.amount),
+    });
+  };
+
+  const handleWhatsApp = () => {
+    const message = getReminderMessage();
+    const phoneDigits = debt.phone.replace(/[^0-9]/g, "");
+    const url = `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`;
+    Linking.openURL(url);
+  };
+
+  const handleSMS = () => {
+    const message = getReminderMessage();
+    const url = `sms:${debt.phone}?body=${encodeURIComponent(message)}`;
+    Linking.openURL(url);
+  };
 
   return (
     <Pressable
@@ -371,6 +396,19 @@ function DebtCard({
             {formatEGP(debt.amount)}
           </Text>
         </View>
+        {debt.phone ? (
+          <View style={styles.phoneRow}>
+            <Feather name="phone" size={11} color={theme.textSecondary} />
+            <Text
+              style={[
+                styles.phoneText,
+                { color: theme.textSecondary, fontFamily: "Inter_400Regular" },
+              ]}
+            >
+              {debt.phone}
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.debtBottomRow}>
           {debt.dueDate ? (
             <View style={styles.dueDateRow}>
@@ -405,6 +443,36 @@ function DebtCard({
             </Text>
           ) : null}
         </View>
+        {!debt.settled && isOwedToMe && debt.phone ? (
+          <View style={styles.reminderRow}>
+            <Pressable
+              testID="reminder-whatsapp"
+              onPress={handleWhatsApp}
+              style={({ pressed }) => [
+                styles.reminderBtn,
+                { backgroundColor: "#25D366" + "22", opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Feather name="message-circle" size={12} color="#25D366" />
+              <Text style={[styles.reminderBtnText, { color: "#25D366", fontFamily: "Inter_500Medium" }]}>
+                {t("whatsapp")}
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="reminder-sms"
+              onPress={handleSMS}
+              style={({ pressed }) => [
+                styles.reminderBtn,
+                { backgroundColor: theme.tint + "22", opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Feather name="smartphone" size={12} color={theme.tint} />
+              <Text style={[styles.reminderBtnText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
+                {t("sms")}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
       {!debt.settled && (
         <Pressable
@@ -488,6 +556,18 @@ const styles = StyleSheet.create({
   dueDateRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   dueDate: { fontSize: 12 },
   debtNote: { fontSize: 12 },
+  phoneRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 2 },
+  phoneText: { fontSize: 12 },
+  reminderRow: { flexDirection: "row", gap: 8, marginTop: 6 },
+  reminderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  reminderBtnText: { fontSize: 11 },
   settleBtn: {
     width: 32,
     height: 32,

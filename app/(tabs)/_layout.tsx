@@ -21,6 +21,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
         <Label>AR / AP</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="store">
+        <Icon sf={{ default: "storefront", selected: "storefront.fill" }} />
+        <Label>Store</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="analytics">
         <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
         <Label>Analytics</Label>
@@ -93,6 +97,16 @@ function ClassicTabLayout() {
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="users" size={size} color={color} />;
+          },
+        }}
+      />
+      <Tabs.Screen
+        name="store"
+        options={{
+          title: "Store",
+          tabBarIcon: ({ color, size }) => {
+            const { Feather } = require("@expo/vector-icons");
+            return <Feather name="shopping-bag" size={size} color={color} />;
           },
         }}
       />

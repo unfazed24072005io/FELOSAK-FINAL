@@ -76,8 +76,26 @@ export const cloudDebts = pgTable("cloud_debts", {
   name: text("name").notNull(),
   amount: numeric("amount", { precision: 15, scale: 2 }).notNull(),
   note: text("note").default(""),
+  phone: text("phone").default(""),
   dueDate: text("due_date").default(""),
   settled: boolean("settled").default(false),
+  createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const products = pgTable("products", {
+  id: varchar("id", { length: 36 })
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  bookId: varchar("book_id", { length: 36 })
+    .notNull()
+    .references(() => books.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description").default(""),
+  price: numeric("price", { precision: 15, scale: 2 }).notNull(),
+  image: text("image").default(""),
+  category: text("category").default(""),
+  inStock: boolean("in_stock").default(true),
   createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -108,8 +126,18 @@ export const insertDebtSchema = createInsertSchema(cloudDebts).pick({
   name: true,
   amount: true,
   note: true,
+  phone: true,
   dueDate: true,
   settled: true,
+});
+
+export const insertProductSchema = createInsertSchema(products).pick({
+  name: true,
+  description: true,
+  price: true,
+  image: true,
+  category: true,
+  inStock: true,
 });
 
 export type User = typeof users.$inferSelect;
@@ -118,3 +146,4 @@ export type Book = typeof books.$inferSelect;
 export type BookMember = typeof bookMembers.$inferSelect;
 export type CloudTransaction = typeof cloudTransactions.$inferSelect;
 export type CloudDebt = typeof cloudDebts.$inferSelect;
+export type Product = typeof products.$inferSelect;

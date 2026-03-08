@@ -305,11 +305,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/books/:id/debts", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      const { direction, name, amount, note, dueDate, settled } = req.body;
+      const { direction, name, amount, note, phone, dueDate, settled } = req.body;
       if (!direction || !name || !amount) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-      const debt = await storage.addDebt(req.params.id, { direction, name, amount: String(amount), note: note || "", dueDate: dueDate || "", settled: settled || false }, req.session.userId!);
+      const debt = await storage.addDebt(req.params.id, { direction, name, amount: String(amount), note: note || "", phone: phone || "", dueDate: dueDate || "", settled: settled || false }, req.session.userId!);
       res.json(debt);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to add debt" });
@@ -318,12 +318,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/books/:id/debts/:debtId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      const { direction, name, amount, note, dueDate, settled } = req.body;
+      const { direction, name, amount, note, phone, dueDate, settled } = req.body;
       const updateData: any = {};
       if (direction) updateData.direction = direction;
       if (name) updateData.name = name;
       if (amount !== undefined) updateData.amount = String(amount);
       if (note !== undefined) updateData.note = note;
+      if (phone !== undefined) updateData.phone = phone;
       if (dueDate !== undefined) updateData.dueDate = dueDate;
       if (settled !== undefined) updateData.settled = settled;
       const debt = await storage.updateDebt(req.params.debtId, req.params.id, updateData);
@@ -340,6 +341,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (e: any) {
       res.status(500).json({ message: "Failed to delete debt" });
     }
+  });
+
+  // ===== PRODUCTS =====
+  app.get("/api/books/:id/products", requireAuth, requireBookAccess, async (req, res) => {
+    try {
+      const prods = await storage.getBookProducts(req.params.id);
+      res.json(prods);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to fetch products" });
+    }
+  });
+
+  app.post("/api/books/:id/products", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
+    try {
+      const { name, description, price, image, category, inStock } = req.body;
+      if (!name || price === undefined) {
+        return res.status(400).json({ message: "Name and price are required" });
+      }
+      const imgData = typeof image === "string" ? image.substring(0, 5 * 1024 * 1024) : "";
+      const product = await storage.addProduct(req.params.id, {
+        name,
+        description: description || "",
+        price: String(price),
+        image: imgData,
+        category: category || "",
+        inStock: inStock !== false,
+      }, req.session.userId!);
+      res.json(product);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to add product" });
+    }
+  });
+
+  app.put("/api/books/:id/products/:productId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
+    try {
+      const { name, description, price, image, category, inStock } = req.body;
+      const updateData: any = {};
+      if (name) updateData.name = name;
+      if (description !== undefined) updateData.description = description;
+      if (price !== undefined) updateData.price = String(price);
+      if (image !== undefined) updateData.image = typeof image === "string" ? image.substring(0, 5 * 1024 * 1024) : "";
+      if (category !== undefined) updateData.category = category;
+      if (inStock !== undefined) updateData.inStock = inStock;
+      const product = await storage.updateProduct(req.params.productId, req.params.id, updateData);
+      res.json(product);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to update product" });
+    }
+  });
+
+  app.delete("/api/books/:id/products/:productId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
+    try {
+      await storage.deleteProduct(req.params.productId, req.params.id);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to delete product" });
+    }
+  });
+
+  // ===== PUBLIC STOREFRONT =====
+  app.get("/api/store/:bookId", async (req, res) => {
+    try {
+      const data = await storage.getPublicStoreProducts(req.params.bookId);
+      if (!data) return res.status(404).json({ message: "Store not found" });
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to load store" });
+    }
+  });
+
+  app.get("/store/:bookId", async (_req, res) => {
+    res.sendFile("storefront.html", { root: __dirname + "/templates" });
   });
 
   const httpServer = createServer(app);

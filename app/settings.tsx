@@ -16,6 +16,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 
 export default function SettingsScreen() {
@@ -25,6 +26,7 @@ export default function SettingsScreen() {
   const theme = isDark ? Colors.dark : Colors.light;
   const { pin, setPin, lock, activeBook } = useApp();
   const { user, logout } = useAuth();
+  const { language, setLanguage, t } = useLanguage();
 
   const [step, setStep] = useState<"idle" | "enter" | "confirm">("idle");
   const [newPin, setNewPin] = useState("");
@@ -109,7 +111,7 @@ export default function SettingsScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          Settings
+          {t("settings")}
         </Text>
         <View style={{ width: 22 }} />
       </View>
@@ -279,8 +281,22 @@ export default function SettingsScreen() {
             )}
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <SettingsRow
+              icon="globe"
+              title={t("language")}
+              subtitle={language === "en" ? "English" : "العربية"}
+              theme={theme}
+              badge={language.toUpperCase()}
+              badgeColor={theme.tint}
+              onPress={() => {
+                const next = language === "en" ? "ar" : "en";
+                setLanguage(next as any);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
               icon="info"
-              title="About Misr Cash Book"
+              title={t("about")}
               subtitle="Version 1.0.0"
               theme={theme}
               onPress={() => {

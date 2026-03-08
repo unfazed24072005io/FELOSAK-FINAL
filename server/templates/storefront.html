@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Store</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0A1F15; color: #E8E2D6; min-height: 100vh; }
+    .header { background: linear-gradient(135deg, #0A1F15 0%, #143D28 100%); padding: 32px 20px; text-align: center; border-bottom: 2px solid #C9A84C; }
+    .header h1 { font-size: 28px; color: #C9A84C; margin-bottom: 4px; }
+    .header p { font-size: 14px; color: #A8A090; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; padding: 24px 20px; max-width: 1200px; margin: 0 auto; }
+    .card { background: #143D28; border-radius: 16px; overflow: hidden; border: 1px solid rgba(201, 168, 76, 0.15); transition: transform 0.2s; }
+    .card:hover { transform: translateY(-4px); }
+    .card-img { width: 100%; height: 200px; object-fit: cover; background: #0D2B1C; }
+    .card-img-placeholder { width: 100%; height: 200px; background: linear-gradient(135deg, #0D2B1C, #1A4D35); display: flex; align-items: center; justify-content: center; font-size: 48px; color: #C9A84C33; }
+    .card-body { padding: 16px; }
+    .card-name { font-size: 18px; font-weight: 600; color: #E8E2D6; margin-bottom: 4px; }
+    .card-desc { font-size: 13px; color: #A8A090; margin-bottom: 12px; line-height: 1.4; }
+    .card-price { font-size: 22px; font-weight: 700; color: #C9A84C; }
+    .card-price span { font-size: 13px; color: #A8A090; margin-left: 4px; }
+    .card-cat { display: inline-block; background: rgba(201, 168, 76, 0.12); color: #C9A84C; padding: 4px 10px; border-radius: 6px; font-size: 12px; margin-top: 8px; }
+    .empty { text-align: center; padding: 80px 20px; }
+    .empty h2 { color: #C9A84C; margin-bottom: 8px; }
+    .empty p { color: #A8A090; }
+    .loading { text-align: center; padding: 80px 20px; color: #A8A090; }
+    .footer { text-align: center; padding: 24px; font-size: 12px; color: #A8A09066; border-top: 1px solid rgba(201, 168, 76, 0.1); margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1 id="storeName">Loading...</h1>
+    <p>Digital Storefront</p>
+  </div>
+  <div id="content" class="loading">Loading products...</div>
+  <div class="footer">Powered by Misr Cash Book</div>
+  <script>
+    const bookId = window.location.pathname.split('/store/')[1];
+    fetch('/api/store/' + bookId)
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('storeName').textContent = data.bookName;
+        document.title = data.bookName + ' - Store';
+        const el = document.getElementById('content');
+        if (!data.products || data.products.length === 0) {
+          el.className = 'empty';
+          el.innerHTML = '<h2>No products available</h2><p>Check back later for updates</p>';
+          return;
+        }
+        el.className = 'grid';
+        el.innerHTML = data.products.map(p => {
+          const imgHtml = p.image
+            ? '<img class="card-img" src="' + p.image.replace(/"/g, '&quot;') + '" alt="' + (p.name || '').replace(/"/g, '&quot;') + '">'
+            : '<div class="card-img-placeholder">&#9733;</div>';
+          const desc = p.description ? '<div class="card-desc">' + escapeHtml(p.description) + '</div>' : '';
+          const cat = p.category ? '<div class="card-cat">' + escapeHtml(p.category) + '</div>' : '';
+          return '<div class="card">' + imgHtml + '<div class="card-body"><div class="card-name">' + escapeHtml(p.name) + '</div>' + desc + '<div class="card-price">' + formatEGP(p.price) + '<span>EGP</span></div>' + cat + '</div></div>';
+        }).join('');
+      })
+      .catch(() => {
+        document.getElementById('content').innerHTML = '<div class="empty"><h2>Store not found</h2><p>This store may no longer be available</p></div>';
+      });
+    function escapeHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+    function formatEGP(n) { return Number(n).toLocaleString('en-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  </script>
+</body>
+</html>

@@ -6,12 +6,14 @@ import {
   bookMembers,
   cloudTransactions,
   cloudDebts,
+  products,
   type User,
   type InsertUser,
   type Book,
   type BookMember,
   type CloudTransaction,
   type CloudDebt,
+  type Product,
 } from "@shared/schema";
 import { scryptSync, randomBytes, timingSafeEqual } from "crypto";
 
@@ -208,5 +210,47 @@ export const storage = {
     await db
       .delete(cloudDebts)
       .where(and(eq(cloudDebts.id, debtId), eq(cloudDebts.bookId, bookId)));
+  },
+
+  async getBookProducts(bookId: string): Promise<Product[]> {
+    return db
+      .select()
+      .from(products)
+      .where(eq(products.bookId, bookId))
+      .orderBy(products.createdAt);
+  },
+
+  async addProduct(bookId: string, data: any, userId: string): Promise<Product> {
+    const [product] = await db
+      .insert(products)
+      .values({ ...data, bookId, createdBy: userId })
+      .returning();
+    return product;
+  },
+
+  async updateProduct(productId: string, bookId: string, data: any): Promise<Product | undefined> {
+    const [product] = await db
+      .update(products)
+      .set(data)
+      .where(and(eq(products.id, productId), eq(products.bookId, bookId)))
+      .returning();
+    return product;
+  },
+
+  async deleteProduct(productId: string, bookId: string): Promise<void> {
+    await db
+      .delete(products)
+      .where(and(eq(products.id, productId), eq(products.bookId, bookId)));
+  },
+
+  async getPublicStoreProducts(bookId: string): Promise<{ bookName: string; products: Product[] } | null> {
+    const book = await storage.getBook(bookId);
+    if (!book) return null;
+    const prods = await db
+      .select()
+      .from(products)
+      .where(and(eq(products.bookId, bookId), eq(products.inStock, true)))
+      .orderBy(products.createdAt);
+    return { bookName: book.name, products: prods };
   },
 };
