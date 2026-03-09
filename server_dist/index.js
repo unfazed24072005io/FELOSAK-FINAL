@@ -801,6 +801,15 @@ function configureExpoAndLanding(app2) {
   });
   app2.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
   app2.use(express.static(path.resolve(process.cwd(), "static-build")));
+  app2.use(express.static(path.resolve(process.cwd(), "dist")));
+  app2.use((req, res, next) => {
+    if (req.path.startsWith("/api") || req.method !== "GET") return next();
+    const indexPath = path.resolve(process.cwd(), "dist", "index.html");
+    if (fs.existsSync(indexPath)) {
+      return res.sendFile(indexPath);
+    }
+    next();
+  });
   log("Expo routing: Checking expo-platform header on / and /manifest");
 }
 function setupErrorHandler(app2) {
