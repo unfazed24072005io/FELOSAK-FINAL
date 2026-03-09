@@ -11,6 +11,11 @@ declare module "express-session" {
   }
 }
 
+function param(req: Request, name: string): string {
+  const val = req.params[name];
+  return Array.isArray(val) ? val[0] : val || "";
+}
+
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Not authenticated" });
@@ -19,7 +24,7 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 async function requireBookAccess(req: Request, res: Response, next: NextFunction) {
-  const bookId = req.params.id || req.params.bookId;
+  const bookId = param(req, "id") || param(req, "bookId");
   const userId = req.session.userId!;
   const membership = await storage.getUserMembership(bookId, userId);
   if (!membership) {
@@ -154,9 +159,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/books/:id", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const book = await storage.getBook(req.params.id);
+      const book = await storage.getBook(param(req, "id"));
       if (!book) return res.status(404).json({ message: "Book not found" });
-      const members = await storage.getBookMembers(req.params.id);
+      const members = await storage.getBookMembers(param(req, "id"));
       res.json({ ...book, members, role: (req as any).membership.role });
     } catch (e: any) {
       res.status(500).json({ message: "Failed to fetch book" });
@@ -166,7 +171,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/books/:id", requireAuth, requireBookAccess, requireBookOwner, async (req, res) => {
     try {
       const { name, description } = req.body;
-      const book = await storage.updateBook(req.params.id, { name, description });
+      const book = await storage.updateBook(param(req, "id"), { name, description });
       res.json(book);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to update book" });
@@ -175,7 +180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/books/:id", requireAuth, requireBookAccess, requireBookOwner, async (req, res) => {
     try {
-      await storage.deleteBook(req.params.id);
+      await storage.deleteBook(param(req, "id"));
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: "Failed to delete book" });
@@ -185,7 +190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== MEMBERS =====
   app.get("/api/books/:id/members", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const members = await storage.getBookMembers(req.params.id);
+      const members = await storage.getBookMembers(param(req, "id"));
       res.json(members);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to fetch members" });
@@ -206,11 +211,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      const existing = await storage.getUserMembership(req.params.id, user.id);
+      const existing = await storage.getUserMembership(param(req, "id"), user.id);
       if (existing) {
         return res.status(409).json({ message: "User is already a member" });
       }
-      const member = await storage.addBookMember(req.params.id, user.id, assignRole);
+      const member = await storage.addBookMember(param(req, "id"), user.id, assignRole);
       res.json({ ...member, username: user.username, displayName: user.displayName });
     } catch (e: any) {
       res.status(500).json({ message: "Failed to add member" });
@@ -223,7 +228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!role || !["owner", "editor", "viewer"].includes(role)) {
         return res.status(400).json({ message: "Valid role required (owner, editor, viewer)" });
       }
-      const m = await storage.updateMemberRole(req.params.memberId, req.params.id, role);
+      const m = await storage.updateMemberRole(param(req, "memberId"), param(req, "id"), role);
       res.json(m);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to update member" });
@@ -232,7 +237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/books/:id/members/:memberId", requireAuth, requireBookAccess, requireBookOwner, async (req, res) => {
     try {
-      await storage.removeMember(req.params.memberId, req.params.id);
+      await storage.removeMember(param(req, "memberId"), param(req, "id"));
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: "Failed to remove member" });
@@ -242,7 +247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== TRANSACTIONS =====
   app.get("/api/books/:id/transactions", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const txs = await storage.getBookTransactions(req.params.id);
+      const txs = await storage.getBookTransactions(param(req, "id"));
       res.json(txs);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to fetch transactions" });
@@ -259,7 +264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const mode = paymentMode && VALID_PAYMENT_MODES.includes(paymentMode) ? paymentMode : "cash";
       const attach = typeof attachment === "string" ? attachment.substring(0, 5 * 1024 * 1024) : "";
-      const tx = await storage.addTransaction(req.params.id, { type, amount: String(amount), category, note: note || "", date, paymentMode: mode, attachment: attach }, req.session.userId!);
+      const tx = await storage.addTransaction(param(req, "id"), { type, amount: String(amount), category, note: note || "", date, paymentMode: mode, attachment: attach }, req.session.userId!);
       res.json(tx);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to add transaction" });
@@ -277,7 +282,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (date) updateData.date = date;
       if (paymentMode !== undefined) updateData.paymentMode = VALID_PAYMENT_MODES.includes(paymentMode) ? paymentMode : "cash";
       if (attachment !== undefined) updateData.attachment = typeof attachment === "string" ? attachment.substring(0, 5 * 1024 * 1024) : "";
-      const tx = await storage.updateTransaction(req.params.txId, req.params.id, updateData);
+      const tx = await storage.updateTransaction(param(req, "txId"), param(req, "id"), updateData);
       res.json(tx);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to update transaction" });
@@ -286,7 +291,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/books/:id/transactions/:txId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      await storage.deleteTransaction(req.params.txId, req.params.id);
+      await storage.deleteTransaction(param(req, "txId"), param(req, "id"));
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: "Failed to delete transaction" });
@@ -296,7 +301,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== DEBTS =====
   app.get("/api/books/:id/debts", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const debts = await storage.getBookDebts(req.params.id);
+      const debts = await storage.getBookDebts(param(req, "id"));
       res.json(debts);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to fetch debts" });
@@ -309,7 +314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!direction || !name || !amount) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-      const debt = await storage.addDebt(req.params.id, { direction, name, amount: String(amount), note: note || "", phone: phone || "", dueDate: dueDate || "", settled: settled || false }, req.session.userId!);
+      const debt = await storage.addDebt(param(req, "id"), { direction, name, amount: String(amount), note: note || "", phone: phone || "", dueDate: dueDate || "", settled: settled || false }, req.session.userId!);
       res.json(debt);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to add debt" });
@@ -327,7 +332,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (phone !== undefined) updateData.phone = phone;
       if (dueDate !== undefined) updateData.dueDate = dueDate;
       if (settled !== undefined) updateData.settled = settled;
-      const debt = await storage.updateDebt(req.params.debtId, req.params.id, updateData);
+      const debt = await storage.updateDebt(param(req, "debtId"), param(req, "id"), updateData);
       res.json(debt);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to update debt" });
@@ -336,7 +341,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/books/:id/debts/:debtId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      await storage.deleteDebt(req.params.debtId, req.params.id);
+      await storage.deleteDebt(param(req, "debtId"), param(req, "id"));
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: "Failed to delete debt" });
@@ -346,7 +351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== PRODUCTS =====
   app.get("/api/books/:id/products", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const prods = await storage.getBookProducts(req.params.id);
+      const prods = await storage.getBookProducts(param(req, "id"));
       res.json(prods);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to fetch products" });
@@ -360,7 +365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Name and price are required" });
       }
       const imgData = typeof image === "string" ? image.substring(0, 5 * 1024 * 1024) : "";
-      const product = await storage.addProduct(req.params.id, {
+      const product = await storage.addProduct(param(req, "id"), {
         name,
         description: description || "",
         price: String(price),
@@ -384,7 +389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (image !== undefined) updateData.image = typeof image === "string" ? image.substring(0, 5 * 1024 * 1024) : "";
       if (category !== undefined) updateData.category = category;
       if (inStock !== undefined) updateData.inStock = inStock;
-      const product = await storage.updateProduct(req.params.productId, req.params.id, updateData);
+      const product = await storage.updateProduct(param(req, "productId"), param(req, "id"), updateData);
       res.json(product);
     } catch (e: any) {
       res.status(500).json({ message: "Failed to update product" });
@@ -393,7 +398,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/books/:id/products/:productId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      await storage.deleteProduct(req.params.productId, req.params.id);
+      await storage.deleteProduct(param(req, "productId"), param(req, "id"));
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ message: "Failed to delete product" });
@@ -403,7 +408,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== PUBLIC STOREFRONT =====
   app.get("/api/store/:bookId", async (req, res) => {
     try {
-      const data = await storage.getPublicStoreProducts(req.params.bookId);
+      const data = await storage.getPublicStoreProducts(param(req, "bookId"));
       if (!data) return res.status(404).json({ message: "Store not found" });
       res.json(data);
     } catch (e: any) {

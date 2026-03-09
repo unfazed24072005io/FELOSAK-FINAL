@@ -283,6 +283,10 @@ var storage = {
 };
 
 // server/routes.ts
+function param(req, name) {
+  const val = req.params[name];
+  return Array.isArray(val) ? val[0] : val || "";
+}
 function requireAuth(req, res, next) {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Not authenticated" });
@@ -290,7 +294,7 @@ function requireAuth(req, res, next) {
   next();
 }
 async function requireBookAccess(req, res, next) {
-  const bookId = req.params.id || req.params.bookId;
+  const bookId = param(req, "id") || param(req, "bookId");
   const userId = req.session.userId;
   const membership = await storage.getUserMembership(bookId, userId);
   if (!membership) {
@@ -327,7 +331,7 @@ async function registerRoutes(app2) {
       cookie: {
         maxAge: 30 * 24 * 60 * 60 * 1e3,
         httpOnly: true,
-        secure: false,
+        secure: process.env.NODE_ENV === "production",
         sameSite: "lax"
       }
     })
@@ -412,9 +416,9 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/books/:id", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const book = await storage.getBook(req.params.id);
+      const book = await storage.getBook(param(req, "id"));
       if (!book) return res.status(404).json({ message: "Book not found" });
-      const members = await storage.getBookMembers(req.params.id);
+      const members = await storage.getBookMembers(param(req, "id"));
       res.json({ ...book, members, role: req.membership.role });
     } catch (e) {
       res.status(500).json({ message: "Failed to fetch book" });
@@ -423,7 +427,7 @@ async function registerRoutes(app2) {
   app2.put("/api/books/:id", requireAuth, requireBookAccess, requireBookOwner, async (req, res) => {
     try {
       const { name, description } = req.body;
-      const book = await storage.updateBook(req.params.id, { name, description });
+      const book = await storage.updateBook(param(req, "id"), { name, description });
       res.json(book);
     } catch (e) {
       res.status(500).json({ message: "Failed to update book" });
@@ -431,7 +435,7 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/books/:id", requireAuth, requireBookAccess, requireBookOwner, async (req, res) => {
     try {
-      await storage.deleteBook(req.params.id);
+      await storage.deleteBook(param(req, "id"));
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ message: "Failed to delete book" });
@@ -439,7 +443,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/books/:id/members", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const members = await storage.getBookMembers(req.params.id);
+      const members = await storage.getBookMembers(param(req, "id"));
       res.json(members);
     } catch (e) {
       res.status(500).json({ message: "Failed to fetch members" });
@@ -459,11 +463,11 @@ async function registerRoutes(app2) {
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      const existing = await storage.getUserMembership(req.params.id, user.id);
+      const existing = await storage.getUserMembership(param(req, "id"), user.id);
       if (existing) {
         return res.status(409).json({ message: "User is already a member" });
       }
-      const member = await storage.addBookMember(req.params.id, user.id, assignRole);
+      const member = await storage.addBookMember(param(req, "id"), user.id, assignRole);
       res.json({ ...member, username: user.username, displayName: user.displayName });
     } catch (e) {
       res.status(500).json({ message: "Failed to add member" });
@@ -475,7 +479,7 @@ async function registerRoutes(app2) {
       if (!role || !["owner", "editor", "viewer"].includes(role)) {
         return res.status(400).json({ message: "Valid role required (owner, editor, viewer)" });
       }
-      const m = await storage.updateMemberRole(req.params.memberId, req.params.id, role);
+      const m = await storage.updateMemberRole(param(req, "memberId"), param(req, "id"), role);
       res.json(m);
     } catch (e) {
       res.status(500).json({ message: "Failed to update member" });
@@ -483,7 +487,7 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/books/:id/members/:memberId", requireAuth, requireBookAccess, requireBookOwner, async (req, res) => {
     try {
-      await storage.removeMember(req.params.memberId, req.params.id);
+      await storage.removeMember(param(req, "memberId"), param(req, "id"));
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ message: "Failed to remove member" });
@@ -491,7 +495,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/books/:id/transactions", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const txs = await storage.getBookTransactions(req.params.id);
+      const txs = await storage.getBookTransactions(param(req, "id"));
       res.json(txs);
     } catch (e) {
       res.status(500).json({ message: "Failed to fetch transactions" });
@@ -506,7 +510,7 @@ async function registerRoutes(app2) {
       }
       const mode = paymentMode && VALID_PAYMENT_MODES.includes(paymentMode) ? paymentMode : "cash";
       const attach = typeof attachment === "string" ? attachment.substring(0, 5 * 1024 * 1024) : "";
-      const tx = await storage.addTransaction(req.params.id, { type, amount: String(amount), category, note: note || "", date, paymentMode: mode, attachment: attach }, req.session.userId);
+      const tx = await storage.addTransaction(param(req, "id"), { type, amount: String(amount), category, note: note || "", date, paymentMode: mode, attachment: attach }, req.session.userId);
       res.json(tx);
     } catch (e) {
       res.status(500).json({ message: "Failed to add transaction" });
@@ -523,7 +527,7 @@ async function registerRoutes(app2) {
       if (date) updateData.date = date;
       if (paymentMode !== void 0) updateData.paymentMode = VALID_PAYMENT_MODES.includes(paymentMode) ? paymentMode : "cash";
       if (attachment !== void 0) updateData.attachment = typeof attachment === "string" ? attachment.substring(0, 5 * 1024 * 1024) : "";
-      const tx = await storage.updateTransaction(req.params.txId, req.params.id, updateData);
+      const tx = await storage.updateTransaction(param(req, "txId"), param(req, "id"), updateData);
       res.json(tx);
     } catch (e) {
       res.status(500).json({ message: "Failed to update transaction" });
@@ -531,7 +535,7 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/books/:id/transactions/:txId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      await storage.deleteTransaction(req.params.txId, req.params.id);
+      await storage.deleteTransaction(param(req, "txId"), param(req, "id"));
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ message: "Failed to delete transaction" });
@@ -539,7 +543,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/books/:id/debts", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const debts = await storage.getBookDebts(req.params.id);
+      const debts = await storage.getBookDebts(param(req, "id"));
       res.json(debts);
     } catch (e) {
       res.status(500).json({ message: "Failed to fetch debts" });
@@ -551,7 +555,7 @@ async function registerRoutes(app2) {
       if (!direction || !name || !amount) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-      const debt = await storage.addDebt(req.params.id, { direction, name, amount: String(amount), note: note || "", phone: phone || "", dueDate: dueDate || "", settled: settled || false }, req.session.userId);
+      const debt = await storage.addDebt(param(req, "id"), { direction, name, amount: String(amount), note: note || "", phone: phone || "", dueDate: dueDate || "", settled: settled || false }, req.session.userId);
       res.json(debt);
     } catch (e) {
       res.status(500).json({ message: "Failed to add debt" });
@@ -568,7 +572,7 @@ async function registerRoutes(app2) {
       if (phone !== void 0) updateData.phone = phone;
       if (dueDate !== void 0) updateData.dueDate = dueDate;
       if (settled !== void 0) updateData.settled = settled;
-      const debt = await storage.updateDebt(req.params.debtId, req.params.id, updateData);
+      const debt = await storage.updateDebt(param(req, "debtId"), param(req, "id"), updateData);
       res.json(debt);
     } catch (e) {
       res.status(500).json({ message: "Failed to update debt" });
@@ -576,7 +580,7 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/books/:id/debts/:debtId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      await storage.deleteDebt(req.params.debtId, req.params.id);
+      await storage.deleteDebt(param(req, "debtId"), param(req, "id"));
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ message: "Failed to delete debt" });
@@ -584,7 +588,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/books/:id/products", requireAuth, requireBookAccess, async (req, res) => {
     try {
-      const prods = await storage.getBookProducts(req.params.id);
+      const prods = await storage.getBookProducts(param(req, "id"));
       res.json(prods);
     } catch (e) {
       res.status(500).json({ message: "Failed to fetch products" });
@@ -597,7 +601,7 @@ async function registerRoutes(app2) {
         return res.status(400).json({ message: "Name and price are required" });
       }
       const imgData = typeof image === "string" ? image.substring(0, 5 * 1024 * 1024) : "";
-      const product = await storage.addProduct(req.params.id, {
+      const product = await storage.addProduct(param(req, "id"), {
         name,
         description: description || "",
         price: String(price),
@@ -620,7 +624,7 @@ async function registerRoutes(app2) {
       if (image !== void 0) updateData.image = typeof image === "string" ? image.substring(0, 5 * 1024 * 1024) : "";
       if (category !== void 0) updateData.category = category;
       if (inStock !== void 0) updateData.inStock = inStock;
-      const product = await storage.updateProduct(req.params.productId, req.params.id, updateData);
+      const product = await storage.updateProduct(param(req, "productId"), param(req, "id"), updateData);
       res.json(product);
     } catch (e) {
       res.status(500).json({ message: "Failed to update product" });
@@ -628,7 +632,7 @@ async function registerRoutes(app2) {
   });
   app2.delete("/api/books/:id/products/:productId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
     try {
-      await storage.deleteProduct(req.params.productId, req.params.id);
+      await storage.deleteProduct(param(req, "productId"), param(req, "id"));
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ message: "Failed to delete product" });
@@ -636,7 +640,7 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/store/:bookId", async (req, res) => {
     try {
-      const data = await storage.getPublicStoreProducts(req.params.bookId);
+      const data = await storage.getPublicStoreProducts(param(req, "bookId"));
       if (!data) return res.status(404).json({ message: "Store not found" });
       res.json(data);
     } catch (e) {
@@ -654,6 +658,7 @@ async function registerRoutes(app2) {
 import * as fs from "fs";
 import * as path from "path";
 var app = express();
+app.set("trust proxy", 1);
 var log = console.log;
 function setupCors(app2) {
   app2.use((req, res, next) => {
