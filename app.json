@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Misr Cash Book",
-    "slug": "misr-cash-book",
+    "name": "Misr Hesabat : Cash Book for business personal finance",
+    "slug": "misrhesabatcashbookforbusinesspersonalfinance",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "misrcashbook",
+    "scheme": "misrhesabatcashbookforbusinesspersonalfinance",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,10 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.misr.cashbook"
+      "bundleIdentifier": "com.misrhesabatcashbookforbusinesspersonalfinance.app"
     },
     "android": {
-      "package": "com.misr.cashbook",
+      "package": "com.misrhesabatcashbookforbusinesspersonalfinance.app",
       "adaptiveIcon": {
         "backgroundColor": "#0D2B1E",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

@@ -8,6 +8,7 @@ channel = "stable-24_05"
 deploymentTarget = "autoscale"
 build = ["sh", "scripts/deploy-build.sh"]
 run = ["sh", "scripts/deploy-run.sh"]
+publicDir = "dist"
 
 [[ports]]
 localPort = 5000
