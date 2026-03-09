@@ -133,14 +133,14 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <KeyboardProvider>
-            <AuthProvider>
-              <AppProvider>
-                <LanguageProvider>
+            <LanguageProvider>
+              <AuthProvider>
+                <AppProvider>
                   <RootLayoutNav />
                   <PinLockOverlay />
-                </LanguageProvider>
-              </AppProvider>
-            </AuthProvider>
+                </AppProvider>
+              </AuthProvider>
+            </LanguageProvider>
           </KeyboardProvider>
         </GestureHandlerRootView>
       </QueryClientProvider>

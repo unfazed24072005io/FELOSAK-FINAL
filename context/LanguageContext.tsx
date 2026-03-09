@@ -28,6 +28,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.getItem(STORAGE_KEY).then((val) => {
       if (val === "ar" || val === "en") {
         setLanguageState(val);
+        if (Platform.OS !== "web") {
+          I18nManager.allowRTL(true);
+          I18nManager.forceRTL(val === "ar");
+        }
       }
     });
   }, []);
@@ -45,7 +49,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       let text = translations[language][key] || translations.en[key] || key;
       if (params) {
         Object.entries(params).forEach(([k, v]) => {
-          text = text.replace(`{${k}}`, String(v));
+          text = text.split(`{${k}}`).join(String(v));
         });
       }
       return text;

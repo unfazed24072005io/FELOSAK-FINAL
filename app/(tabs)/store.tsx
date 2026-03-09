@@ -62,12 +62,16 @@ export default function StoreScreen() {
     );
   }
 
-  const handleShare = () => {
+  const handleShare = async () => {
     const url = getApiUrl() + "/store/" + activeBook.id;
-    if (Platform.OS === "web") {
-      (window as any).open(url);
-    } else {
-      Linking.openURL(url);
+    try {
+      if (Platform.OS === "web") {
+        (window as any).open(url);
+      } else {
+        await Linking.openURL(url);
+      }
+    } catch (e) {
+      console.error("Failed to open store URL", e);
     }
   };
 

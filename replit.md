@@ -143,7 +143,7 @@ A fully functional cash book application built for Egyptian SMEs (Small & Medium
 ## App Structure
 ```
 app/
-  _layout.tsx          # Root layout: AuthProvider > AppProvider > LanguageProvider > PinLockOverlay
+  _layout.tsx          # Root layout: LanguageProvider > AuthProvider > AppProvider > PinLockOverlay
   (tabs)/
     _layout.tsx        # Tab navigation (Books, Transactions, AR/AP, Store, Analytics)
     index.tsx          # Books list (no book selected) / Dashboard (book selected)

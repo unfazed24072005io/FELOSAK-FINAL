@@ -344,17 +344,26 @@ function DebtCard({
     });
   };
 
-  const handleWhatsApp = () => {
+  const handleWhatsApp = async () => {
     const message = getReminderMessage();
-    const phoneDigits = debt.phone.replace(/[^0-9]/g, "");
+    const phone = debt.phone || "";
+    const phoneDigits = phone.replace(/[^0-9]/g, "");
     const url = `https://wa.me/${phoneDigits}?text=${encodeURIComponent(message)}`;
-    Linking.openURL(url);
+    try {
+      await Linking.openURL(url);
+    } catch (e) {
+      console.error("Failed to open WhatsApp", e);
+    }
   };
 
-  const handleSMS = () => {
+  const handleSMS = async () => {
     const message = getReminderMessage();
-    const url = `sms:${debt.phone}?body=${encodeURIComponent(message)}`;
-    Linking.openURL(url);
+    const url = `sms:${debt.phone || ""}?body=${encodeURIComponent(message)}`;
+    try {
+      await Linking.openURL(url);
+    } catch (e) {
+      console.error("Failed to open SMS", e);
+    }
   };
 
   return (

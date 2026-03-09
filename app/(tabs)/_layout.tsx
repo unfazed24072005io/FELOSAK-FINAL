@@ -5,29 +5,31 @@ import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, useColorScheme } from "react-native";
 import React from "react";
 import Colors from "@/constants/colors";
+import { useLanguage } from "@/context/LanguageContext";
 
 function NativeTabLayout() {
+  const { t } = useLanguage();
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "book", selected: "book.fill" }} />
-        <Label>Books</Label>
+        <Label>{t("books")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="transactions">
         <Icon sf={{ default: "list.bullet", selected: "list.bullet" }} />
-        <Label>Transactions</Label>
+        <Label>{t("transactions")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="debtors">
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
-        <Label>AR / AP</Label>
+        <Label>{t("arAp")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="store">
         <Icon sf={{ default: "storefront", selected: "storefront.fill" }} />
-        <Label>Store</Label>
+        <Label>{t("store")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="analytics">
         <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
-        <Label>Analytics</Label>
+        <Label>{t("analytics")}</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -37,6 +39,7 @@ function ClassicTabLayout() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
+  const { t } = useLanguage();
 
   return (
     <Tabs
@@ -73,7 +76,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Books",
+          title: t("books"),
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="book-open" size={size} color={color} />;
@@ -83,7 +86,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="transactions"
         options={{
-          title: "Transactions",
+          title: t("transactions"),
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="list" size={size} color={color} />;
@@ -93,7 +96,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="debtors"
         options={{
-          title: "AR / AP",
+          title: t("arAp"),
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="users" size={size} color={color} />;
@@ -103,7 +106,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="store"
         options={{
-          title: "Store",
+          title: t("store"),
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="shopping-bag" size={size} color={color} />;
@@ -113,7 +116,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="analytics"
         options={{
-          title: "Analytics",
+          title: t("analytics"),
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="bar-chart-2" size={size} color={color} />;

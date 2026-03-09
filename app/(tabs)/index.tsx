@@ -550,8 +550,8 @@ function BookDashboard() {
         style={[
           styles.bottomBar,
           {
-            paddingBottom: Platform.OS === "web" ? bottomPad : 8,
-            marginBottom: Platform.OS === "web" ? 84 : 50,
+            paddingBottom: Platform.OS === "web" ? bottomPad + 4 : Math.max(insets.bottom, 12),
+            marginBottom: Platform.OS === "web" ? 84 : 80,
             backgroundColor: theme.background,
             borderTopColor: theme.border,
           },

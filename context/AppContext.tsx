@@ -150,7 +150,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setIsLocked(true);
         }
 
-        let parsedBooks: CashBook[] = booksRaw ? JSON.parse(booksRaw) : [];
+        let parsedBooks: CashBook[] = [];
+        try {
+          parsedBooks = booksRaw ? JSON.parse(booksRaw) : [];
+        } catch {
+          parsedBooks = [];
+        }
 
         if (parsedBooks.length === 0) {
           const defaultBook: CashBook = {
@@ -292,14 +297,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.getItem(productsKey(book.id)),
       ]);
       if (loadVersionRef.current !== version) return;
-      const parsedTxs = txRaw ? JSON.parse(txRaw) : [];
+      let parsedTxs: any[] = [];
+      let parsedDebts: any[] = [];
+      let parsedProds: any[] = [];
+      try { parsedTxs = txRaw ? JSON.parse(txRaw) : []; } catch { parsedTxs = []; }
+      try { parsedDebts = debtsRaw ? JSON.parse(debtsRaw) : []; } catch { parsedDebts = []; }
+      try { parsedProds = prodsRaw ? JSON.parse(prodsRaw) : []; } catch { parsedProds = []; }
       setTransactions(parsedTxs.map((t: any) => ({
         ...t,
         paymentMode: t.paymentMode || "cash",
         attachment: t.attachment || "",
       })));
-      setDebts((debtsRaw ? JSON.parse(debtsRaw) : []).map((d: any) => ({ ...d, phone: d.phone || "" })));
-      setProducts(prodsRaw ? JSON.parse(prodsRaw) : []);
+      setDebts(parsedDebts.map((d: any) => ({ ...d, phone: d.phone || "" })));
+      setProducts(parsedProds.map((p: any) => ({ ...p, image: p.image || "", category: p.category || "" })));
     }
   }, []);
 
