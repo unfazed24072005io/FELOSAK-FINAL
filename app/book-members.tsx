@@ -3,6 +3,7 @@ import {
   Alert,
   ActivityIndicator,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -16,6 +17,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { fetch } from "expo/fetch";
 import Colors from "@/constants/colors";
@@ -34,6 +36,7 @@ export default function BookMembersScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { user } = useAuth();
+  const { t } = useLanguage();
   const { bookId } = useLocalSearchParams<{ bookId: string }>();
 
   const [members, setMembers] = useState<Member[]>([]);
@@ -43,6 +46,8 @@ export default function BookMembersScreen() {
   const [adding, setAdding] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [error, setError] = useState("");
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<Member | null>(null);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -109,7 +114,7 @@ export default function BookMembersScreen() {
         "Change Role",
         `Change ${member.displayName}'s role?`,
         [
-          { text: "Cancel", style: "cancel" },
+          { text: t("cancel"), style: "cancel" },
           ...roles.map((role) => ({
             text: role.charAt(0).toUpperCase() + role.slice(1),
             onPress: async () => {
@@ -125,7 +130,7 @@ export default function BookMembersScreen() {
         ]
       );
     },
-    [isOwner, bookId, fetchMembers]
+    [isOwner, bookId, fetchMembers, t]
   );
 
   const handleRemoveMember = useCallback(
@@ -135,29 +140,25 @@ export default function BookMembersScreen() {
         Alert.alert("Cannot Remove", "You cannot remove yourself as owner.");
         return;
       }
-      Alert.alert(
-        "Remove Member",
-        `Remove ${member.displayName} from this book?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Remove",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                await apiRequest("DELETE", `/api/books/${bookId}/members/${member.id}`);
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                fetchMembers();
-              } catch (_e) {
-                Alert.alert("Error", "Failed to remove member");
-              }
-            },
-          },
-        ]
-      );
+      setMemberToRemove(member);
+      setShowRemoveModal(true);
     },
-    [isOwner, user, bookId, fetchMembers]
+    [isOwner, user]
   );
+
+  const confirmRemoveMember = useCallback(async () => {
+    if (!memberToRemove) return;
+    try {
+      await apiRequest("DELETE", `/api/books/${bookId}/members/${memberToRemove.id}`);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      fetchMembers();
+    } catch (_e) {
+      Alert.alert("Error", "Failed to remove member");
+    } finally {
+      setShowRemoveModal(false);
+      setMemberToRemove(null);
+    }
+  }, [memberToRemove, bookId, fetchMembers]);
 
   const roleColor = (role: string) => {
     if (role === "owner") return theme.tint;
@@ -187,7 +188,7 @@ export default function BookMembersScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          Members
+          {t("members")}
         </Text>
         {isEditor ? (
           <Pressable
@@ -234,7 +235,7 @@ export default function BookMembersScreen() {
               ]}
             >
               <Text style={[styles.roleBtnText, { color: addRole === "viewer" ? theme.text : theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-                Viewer
+                {t("viewer")}
               </Text>
             </Pressable>
             <Pressable
@@ -248,7 +249,7 @@ export default function BookMembersScreen() {
               ]}
             >
               <Text style={[styles.roleBtnText, { color: addRole === "editor" ? theme.income : theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-                Editor
+                {t("editor")}
               </Text>
             </Pressable>
           </View>
@@ -270,7 +271,7 @@ export default function BookMembersScreen() {
               <ActivityIndicator color="#FFF" size="small" />
             ) : (
               <Text style={[styles.addBtnText, { fontFamily: "Inter_600SemiBold" }]}>
-                Add Member
+                {t("addMember")}
               </Text>
             )}
           </Pressable>
@@ -334,12 +335,60 @@ export default function BookMembersScreen() {
             <View style={styles.emptyContent}>
               <Feather name="users" size={36} color={theme.textSecondary} />
               <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                No members found
+                {t("noMembersFound")}
               </Text>
             </View>
           }
         />
       )}
+
+      <Modal
+        visible={showRemoveModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setShowRemoveModal(false);
+          setMemberToRemove(null);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+              {t("removeMember")}
+            </Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {t("removeMemberConfirm")}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => {
+                  setShowRemoveModal(false);
+                  setMemberToRemove(null);
+                }}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.surface, opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
+                  {t("cancel")}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmRemoveMember}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.expense, opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: "#FFF", fontFamily: "Inter_600SemiBold" }]}>
+                  {t("delete")}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -420,4 +469,39 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
   emptyText: { fontSize: 15 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalContent: {
+    width: "85%",
+    borderRadius: 16,
+    padding: 24,
+    gap: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalBtnText: {
+    fontSize: 15,
+  },
 });

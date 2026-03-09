@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -15,6 +15,7 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp, Transaction } from "@/context/AppContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP, formatDate } from "@/utils/format";
 import { getPaymentModeLabel } from "@/app/add-transaction";
@@ -27,18 +28,21 @@ export default function TransactionsScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { transactions, deleteTransaction, activeBook } = useApp();
+  const { t } = useLanguage();
   const [filter, setFilter] = useState<Filter>("all");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
 
   if (!activeBook) {
     const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
     return (
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>Transactions</Text>
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("transactions")}</Text>
         </View>
         <View style={styles.emptyContent}>
           <Feather name="book-open" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Select a book from Overview to see transactions</Text>
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookTransactions")}</Text>
         </View>
       </View>
     );
@@ -55,21 +59,24 @@ export default function TransactionsScreen() {
   const handleDelete = useCallback(
     (tx: Transaction) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      Alert.alert(
-        "Delete Transaction",
-        `Delete "${tx.category}" for ${formatEGP(tx.amount)}?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: () => deleteTransaction(tx.id),
-          },
-        ]
-      );
+      setTxToDelete(tx);
+      setShowDeleteModal(true);
     },
-    [deleteTransaction]
+    []
   );
+
+  const handleConfirmDelete = () => {
+    if (txToDelete) {
+      deleteTransaction(txToDelete.id);
+    }
+    setShowDeleteModal(false);
+    setTxToDelete(null);
+  };
+
+  const handleCancelDelete = () => {
+    setShowDeleteModal(false);
+    setTxToDelete(null);
+  };
 
   const handleEdit = useCallback((tx: Transaction) => {
     router.push({ pathname: "/add-transaction", params: { editId: tx.id } });
@@ -89,7 +96,6 @@ export default function TransactionsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
       <View
         style={[
           styles.header,
@@ -106,7 +112,7 @@ export default function TransactionsScreen() {
             { color: theme.text, fontFamily: "Inter_700Bold" },
           ]}
         >
-          Transactions
+          {t("transactions")}
         </Text>
         <Pressable
           onPress={() => {
@@ -125,7 +131,6 @@ export default function TransactionsScreen() {
         </Pressable>
       </View>
 
-      {/* Filter Tabs */}
       <View
         style={[
           styles.filterRow,
@@ -157,7 +162,7 @@ export default function TransactionsScreen() {
                 },
               ]}
             >
-              {f === "all" ? "All" : f === "income" ? "Income" : "Expense"}
+              {f === "all" ? t("all") : f === "income" ? t("income") : t("expense")}
             </Text>
           </Pressable>
         ))}
@@ -182,7 +187,7 @@ export default function TransactionsScreen() {
                 { color: theme.textSecondary, fontFamily: "Inter_400Regular" },
               ]}
             >
-              No transactions found
+              {t("noEntriesFound")}
             </Text>
             <Pressable
               onPress={() => router.push("/add-transaction")}
@@ -203,6 +208,51 @@ export default function TransactionsScreen() {
           <View style={[styles.separator, { backgroundColor: theme.border }]} />
         )}
       />
+
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelDelete}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: "#0A1F15" }]}>
+            <Text style={[styles.modalTitle, { color: "#C9A84C", fontFamily: "Inter_700Bold" }]}>
+              {t("confirmDelete")}
+            </Text>
+            <Text style={[styles.modalMessage, { color: "#E0E0E0", fontFamily: "Inter_400Regular" }]}>
+              {txToDelete
+                ? `${t("delete")} "${txToDelete.category}" — ${formatEGP(txToDelete.amount)}?`
+                : t("confirmDeleteMessage")}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={handleCancelDelete}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: "#163428", opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: "#C9A84C", fontFamily: "Inter_600SemiBold" }]}>
+                  {t("cancel")}
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-delete-btn"
+                onPress={handleConfirmDelete}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: "#FFF", fontFamily: "Inter_600SemiBold" }]}>
+                  {t("delete")}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -375,4 +425,39 @@ const styles = StyleSheet.create({
   txNote: { fontSize: 12, flexShrink: 1 },
   txRight: { alignItems: "flex-end" },
   txAmt: { fontSize: 15 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 20,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalBtnText: {
+    fontSize: 15,
+  },
 });

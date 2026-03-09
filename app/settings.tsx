@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import {
   Alert,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -19,6 +20,9 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 
+const MODAL_BG = "#0A1F15";
+const MODAL_GOLD = "#C9A84C";
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -32,6 +36,8 @@ export default function SettingsScreen() {
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState("");
+  const [showRemovePinModal, setShowRemovePinModal] = useState(false);
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -44,14 +50,14 @@ export default function SettingsScreen() {
       setError("");
     } else if (step === "enter") {
       if (newPin.length < 4) {
-        setError("PIN must be 4 digits");
+        setError(t("pinMinDigits"));
         return;
       }
       setStep("confirm");
       setError("");
     } else if (step === "confirm") {
       if (confirmPin !== newPin) {
-        setError("PINs don't match. Try again.");
+        setError(t("pinsDontMatch"));
         setStep("enter");
         setNewPin("");
         setConfirmPin("");
@@ -61,36 +67,28 @@ export default function SettingsScreen() {
       setStep("idle");
       setError("");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("PIN Set", "Your app is now protected with a PIN.");
+      Alert.alert(t("pinSet"), t("pinSetMessage"));
     }
-  }, [step, newPin, confirmPin, setPin]);
+  }, [step, newPin, confirmPin, setPin, t]);
 
   const handleRemovePin = useCallback(() => {
-    Alert.alert("Remove PIN", "Are you sure you want to remove the PIN lock?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: () => {
-          setPin(null);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        },
-      },
-    ]);
+    setShowRemovePinModal(true);
+  }, []);
+
+  const confirmRemovePin = useCallback(() => {
+    setShowRemovePinModal(false);
+    setPin(null);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [setPin]);
 
   const handleLogout = useCallback(() => {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign Out",
-        style: "destructive",
-        onPress: () => {
-          logout();
-          router.back();
-        },
-      },
-    ]);
+    setShowSignOutModal(true);
+  }, []);
+
+  const confirmLogout = useCallback(() => {
+    setShowSignOutModal(false);
+    logout();
+    router.back();
   }, [logout]);
 
   return (
@@ -147,13 +145,13 @@ export default function SettingsScreen() {
         {activeBook?.isCloud && (
           <View style={styles.section}>
             <Text style={[styles.sectionLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-              Book Settings
+              {t("bookSettings")}
             </Text>
             <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <SettingsRow
                 icon="users"
-                title="Business Team"
-                subtitle="Add, remove or change role"
+                title={t("businessTeam")}
+                subtitle={t("addRemoveChangeRole")}
                 theme={theme}
                 onPress={() => {
                   if (activeBook) {
@@ -164,11 +162,11 @@ export default function SettingsScreen() {
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
               <SettingsRow
                 icon="sliders"
-                title="Business Settings"
-                subtitle="Settings specific to this business"
+                title={t("businessSettings")}
+                subtitle={t("settingsSpecificBusiness")}
                 theme={theme}
                 onPress={() => {
-                  Alert.alert("Coming Soon", "Business-specific settings will be available in a future update.");
+                  Alert.alert(t("comingSoon"), t("comingSoonMessage"));
                 }}
               />
             </View>
@@ -177,22 +175,22 @@ export default function SettingsScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            General Settings
+            {t("generalSettings")}
           </Text>
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <SettingsRow
               icon="lock"
-              title="Security"
-              subtitle={pin ? "PIN Lock enabled" : "Set up PIN Lock"}
+              title={t("security")}
+              subtitle={pin ? t("pinEnabled") : t("setPinLock")}
               theme={theme}
               badge={pin ? "ON" : undefined}
               badgeColor={theme.income}
               onPress={() => {
                 if (pin) {
-                  Alert.alert("PIN Lock", "Your PIN is active.", [
-                    { text: "Change PIN", onPress: () => { setStep("enter"); setNewPin(""); setConfirmPin(""); setError(""); } },
-                    { text: "Remove PIN", style: "destructive", onPress: handleRemovePin },
-                    { text: "Cancel", style: "cancel" },
+                  Alert.alert(t("pinLockTitle"), t("pinLockActive"), [
+                    { text: t("changePin"), onPress: () => { setStep("enter"); setNewPin(""); setConfirmPin(""); setError(""); } },
+                    { text: t("removePin"), style: "destructive", onPress: handleRemovePin },
+                    { text: t("cancel"), style: "cancel" },
                   ]);
                 } else {
                   setStep("enter");
@@ -208,7 +206,7 @@ export default function SettingsScreen() {
                 <Text
                   style={[styles.pinPrompt, { color: theme.text, fontFamily: "Inter_500Medium" }]}
                 >
-                  {step === "enter" ? "Enter new 4-digit PIN" : "Confirm your PIN"}
+                  {step === "enter" ? t("enterNewPin") : t("confirmYourPin")}
                 </Text>
                 <TextInput
                   style={[
@@ -243,7 +241,7 @@ export default function SettingsScreen() {
                     ]}
                   >
                     <Text style={[styles.pinCancelTxt, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-                      Cancel
+                      {t("cancel")}
                     </Text>
                   </Pressable>
                   <Pressable
@@ -254,7 +252,7 @@ export default function SettingsScreen() {
                     ]}
                   >
                     <Text style={[styles.pinConfirmTxt, { fontFamily: "Inter_600SemiBold" }]}>
-                      {step === "enter" ? "Next" : "Confirm"}
+                      {step === "enter" ? t("next") : t("confirm")}
                     </Text>
                   </Pressable>
                 </View>
@@ -265,15 +263,15 @@ export default function SettingsScreen() {
             {!user ? (
               <SettingsRow
                 icon="user"
-                title="Your Profile"
-                subtitle="Sign in to sync across devices"
+                title={t("yourProfile")}
+                subtitle={t("signIn")}
                 theme={theme}
                 onPress={() => router.push("/auth")}
               />
             ) : (
               <SettingsRow
                 icon="user"
-                title="Your Profile"
+                title={t("yourProfile")}
                 subtitle={user.displayName}
                 theme={theme}
                 onPress={() => router.push("/account")}
@@ -297,12 +295,12 @@ export default function SettingsScreen() {
             <SettingsRow
               icon="info"
               title={t("about")}
-              subtitle="Version 1.0.0"
+              subtitle={t("version")}
               theme={theme}
               onPress={() => {
                 Alert.alert(
-                  "Misr Cash Book",
-                  "Version 1.0.0\n\nBuilt for Egyptian SMEs.\nOffline-first with cloud sync.\n\nEGP currency support with Arabic numeral input.",
+                  t("appName"),
+                  t("version") + "\n\n" + t("aboutDescription"),
                 );
               }}
             />
@@ -322,7 +320,7 @@ export default function SettingsScreen() {
           >
             <Feather name="lock" size={16} color={theme.tint} />
             <Text style={[styles.lockBtnText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
-              Lock App Now
+              {t("lockAppNow")}
             </Text>
           </Pressable>
         )}
@@ -334,11 +332,67 @@ export default function SettingsScreen() {
           >
             <Feather name="log-out" size={18} color={theme.expense} />
             <Text style={[styles.logoutText, { color: theme.expense, fontFamily: "Inter_500Medium" }]}>
-              Sign Out
+              {t("signOut")}
             </Text>
           </Pressable>
         )}
       </ScrollView>
+
+      <Modal
+        visible={showRemovePinModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRemovePinModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>{t("removePin")}</Text>
+            <Text style={styles.modalMessage}>{t("removePinConfirm")}</Text>
+            <View style={styles.modalBtnRow}>
+              <Pressable
+                onPress={() => setShowRemovePinModal(false)}
+                style={({ pressed }) => [styles.modalCancelBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmRemovePin}
+                style={({ pressed }) => [styles.modalDeleteBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.modalDeleteText}>{t("delete")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showSignOutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSignOutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>{t("signOut")}</Text>
+            <Text style={styles.modalMessage}>{t("signOutConfirm")}</Text>
+            <View style={styles.modalBtnRow}>
+              <Pressable
+                onPress={() => setShowSignOutModal(false)}
+                style={({ pressed }) => [styles.modalCancelBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmLogout}
+                style={({ pressed }) => [styles.modalDeleteBtn, { opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={styles.modalDeleteText}>{t("signOut")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -514,4 +568,65 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   logoutText: { fontSize: 16 },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  modalContainer: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: MODAL_BG,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: MODAL_GOLD + "33",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontFamily: "Inter_600SemiBold",
+    color: MODAL_GOLD,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: "#D4D4D4",
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  modalBtnRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: MODAL_GOLD + "44",
+    alignItems: "center",
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontFamily: "Inter_500Medium",
+    color: MODAL_GOLD,
+  },
+  modalDeleteBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: MODAL_GOLD,
+    alignItems: "center",
+  },
+  modalDeleteText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: MODAL_BG,
+  },
 });

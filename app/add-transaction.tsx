@@ -19,7 +19,9 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { useApp, TransactionType } from "@/context/AppContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
+import type { TranslationKey } from "@/i18n/translations";
 import { today, parseAmount, isValidDateStr } from "@/utils/format";
 
 const INCOME_CATEGORIES = [
@@ -54,10 +56,30 @@ export default function AddTransactionScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { addTransaction, updateTransaction, deleteTransaction, transactions } = useApp();
+  const { t } = useLanguage();
   const params = useLocalSearchParams<{ type?: string; editId?: string }>();
 
+  const CATEGORY_I18N: Record<string, TranslationKey> = {
+    "Sales": "sales",
+    "Services": "services",
+    "Consulting": "consulting",
+    "Rent Received": "rent",
+    "Investment": "investment",
+    "Other Income": "otherIncome",
+    "Inventory": "inventory",
+    "Salaries": "salaries",
+    "Rent": "rent",
+    "Utilities": "utilities",
+    "Marketing": "marketing",
+    "Transport": "transport",
+    "Maintenance": "maintenance",
+    "Taxes": "taxes",
+    "Supplies": "supplies",
+    "Other Expense": "otherExpense",
+  };
+
   const editTx = useMemo(
-    () => (params.editId ? transactions.find((t) => t.id === params.editId) : null),
+    () => (params.editId ? transactions.find((tx) => tx.id === params.editId) : null),
     [params.editId, transactions]
   );
 
@@ -163,7 +185,7 @@ export default function AddTransactionScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          {editTx ? "Edit Transaction" : "New Transaction"}
+          {editTx ? t("editEntry") : t("newTransaction")}
         </Text>
         <View style={styles.headerRight}>
           {editTx && (
@@ -190,7 +212,7 @@ export default function AddTransactionScreen() {
             ]}
           >
             <Text style={[styles.saveBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>
-              {editTx ? "Update" : "Save"}
+              {editTx ? t("update") : t("save")}
             </Text>
           </Pressable>
         </View>
@@ -235,7 +257,7 @@ export default function AddTransactionScreen() {
                 },
               ]}
             >
-              Income
+              {t("income")}
             </Text>
           </Pressable>
           <Pressable
@@ -266,14 +288,14 @@ export default function AddTransactionScreen() {
                 },
               ]}
             >
-              Expense
+              {t("expense")}
             </Text>
           </Pressable>
         </View>
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Amount (EGP)
+            {t("amount")} (EGP)
           </Text>
           <View
             style={[
@@ -303,7 +325,7 @@ export default function AddTransactionScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Payment Mode
+            {t("paymentMode")}
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.paymentScroll} contentContainerStyle={styles.paymentScrollContent}>
             {PAYMENT_MODES.map((mode) => {
@@ -393,7 +415,7 @@ export default function AddTransactionScreen() {
                     },
                   ]}
                 >
-                  {cat}
+                  {CATEGORY_I18N[cat] ? t(CATEGORY_I18N[cat]) : cat}
                 </Text>
               </Pressable>
             ))}
@@ -402,7 +424,7 @@ export default function AddTransactionScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Date
+            {t("date")}
           </Text>
           <View
             style={[
@@ -427,7 +449,7 @@ export default function AddTransactionScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Note (optional)
+            {t("note")} (optional)
           </Text>
           <View
             style={[
@@ -491,7 +513,7 @@ export default function AddTransactionScreen() {
               >
                 <Feather name="camera" size={20} color={theme.tint} />
                 <Text style={[styles.attachBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                  Take Photo
+                  {t("takePhoto")}
                 </Text>
               </Pressable>
               <Pressable
@@ -504,7 +526,7 @@ export default function AddTransactionScreen() {
               >
                 <Feather name="image" size={20} color={theme.tint} />
                 <Text style={[styles.attachBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                  Upload File
+                  {t("gallery")}
                 </Text>
               </Pressable>
             </View>
@@ -527,14 +549,14 @@ export default function AddTransactionScreen() {
                   onPress={() => setShowDeleteConfirm(false)}
                   style={({ pressed }) => [styles.modalCancelBtn, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
                 >
-                  <Text style={[styles.modalCancelTxt, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>Cancel</Text>
+                  <Text style={[styles.modalCancelTxt, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>{t("cancel")}</Text>
                 </Pressable>
                 <Pressable
                   onPress={handleConfirmDelete}
                   style={({ pressed }) => [styles.modalDeleteBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}
                   testID="confirm-delete-btn"
                 >
-                  <Text style={[styles.modalDeleteTxt, { fontFamily: "Inter_600SemiBold" }]}>Delete</Text>
+                  <Text style={[styles.modalDeleteTxt, { fontFamily: "Inter_600SemiBold" }]}>{t("delete")}</Text>
                 </Pressable>
               </View>
             </View>

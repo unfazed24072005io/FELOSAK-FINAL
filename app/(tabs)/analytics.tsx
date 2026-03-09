@@ -10,6 +10,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useApp } from "@/context/AppContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP, formatEGPShort } from "@/utils/format";
 
@@ -27,17 +28,39 @@ export default function AnalyticsScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { transactions, totalIncome, totalExpense, totalBalance, activeBook } = useApp();
+  const { t } = useLanguage();
+
+  const categoryLabel = (cat: string) => {
+    const map: Record<string, string> = {
+      Sales: t("sales"),
+      Services: t("services"),
+      Consulting: t("consulting"),
+      Rent: t("rent"),
+      Investment: t("investment"),
+      "Other Income": t("otherIncome"),
+      Inventory: t("inventory"),
+      Salaries: t("salaries"),
+      Utilities: t("utilities"),
+      Marketing: t("marketing"),
+      Transport: t("transport"),
+      Maintenance: t("maintenance"),
+      Taxes: t("taxes"),
+      Supplies: t("supplies"),
+      "Other Expense": t("otherExpense"),
+    };
+    return map[cat] || cat;
+  };
 
   if (!activeBook) {
     const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
     return (
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>Analytics</Text>
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("analytics")}</Text>
         </View>
         <View style={styles.emptyContent}>
           <Feather name="book-open" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Select a book from Overview to see analytics</Text>
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookAnalytics")}</Text>
         </View>
       </View>
     );
@@ -122,7 +145,7 @@ export default function AnalyticsScreen() {
             { color: theme.text, fontFamily: "Inter_700Bold" },
           ]}
         >
-          Analytics
+          {t("analytics")}
         </Text>
       </View>
 
@@ -136,28 +159,28 @@ export default function AnalyticsScreen() {
         {/* Summary Stat Cards */}
         <View style={styles.statsGrid}>
           <StatCard
-            label="Net Balance"
+            label={t("netBalance")}
             value={formatEGPShort(totalBalance)}
             color={totalBalance >= 0 ? theme.income : theme.expense}
             icon="activity"
             theme={theme}
           />
           <StatCard
-            label="Savings Rate"
+            label={t("savingsRate")}
             value={`${savingsRate.toFixed(1)}%`}
             color={theme.tint}
             icon="percent"
             theme={theme}
           />
           <StatCard
-            label="Total Income"
+            label={t("totalIn")}
             value={formatEGPShort(totalIncome)}
             color={theme.income}
             icon="arrow-up"
             theme={theme}
           />
           <StatCard
-            label="Total Expense"
+            label={t("totalOut")}
             value={formatEGPShort(totalExpense)}
             color={theme.expense}
             icon="arrow-down"
@@ -178,19 +201,19 @@ export default function AnalyticsScreen() {
               { color: theme.text, fontFamily: "Inter_600SemiBold" },
             ]}
           >
-            Last 6 Months
+            {t("last6Months")}
           </Text>
           <View style={styles.legend}>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: theme.income }]} />
               <Text style={[styles.legendLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                Income
+                {t("income")}
               </Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: theme.expense }]} />
               <Text style={[styles.legendLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                Expense
+                {t("expense")}
               </Text>
             </View>
           </View>
@@ -209,22 +232,24 @@ export default function AnalyticsScreen() {
         {/* Top Income Categories */}
         {incomeByCategory.length > 0 && (
           <CategoryBreakdown
-            title="Top Income Sources"
+            title={t("topIncomeSources")}
             data={incomeByCategory}
             total={totalIncome}
             color={theme.income}
             theme={theme}
+            categoryLabel={categoryLabel}
           />
         )}
 
         {/* Top Expense Categories */}
         {expenseByCategory.length > 0 && (
           <CategoryBreakdown
-            title="Top Expense Categories"
+            title={t("topExpenseCategories")}
             data={expenseByCategory}
             total={totalExpense}
             color={theme.expense}
             theme={theme}
+            categoryLabel={categoryLabel}
           />
         )}
 
@@ -342,12 +367,14 @@ function CategoryBreakdown({
   total,
   color,
   theme,
+  categoryLabel,
 }: {
   title: string;
   data: [string, number][];
   total: number;
   color: string;
   theme: typeof Colors.dark;
+  categoryLabel: (cat: string) => string;
 }) {
   return (
     <View
@@ -376,7 +403,7 @@ function CategoryBreakdown({
                 ]}
                 numberOfLines={1}
               >
-                {cat}
+                {categoryLabel(cat)}
               </Text>
               <Text
                 style={[

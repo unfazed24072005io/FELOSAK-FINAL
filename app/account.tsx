@@ -1,6 +1,6 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import {
-  Alert,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -13,6 +13,7 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 
 export default function AccountScreen() {
@@ -21,22 +22,16 @@ export default function AccountScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
+  const [showSignOutModal, setShowSignOutModal] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
-  const handleLogout = useCallback(() => {
-    Alert.alert("Sign Out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign Out",
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          router.back();
-        },
-      },
-    ]);
+  const handleLogout = useCallback(async () => {
+    setShowSignOutModal(false);
+    await logout();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    router.back();
   }, [logout]);
 
   return (
@@ -53,7 +48,7 @@ export default function AccountScreen() {
       >
         <Pressable
           onPress={() => router.back()}
-          accessibilityLabel="Go back"
+          accessibilityLabel={t("goBack")}
           accessibilityRole="button"
         >
           <Feather name="x" size={22} color={theme.textSecondary} />
@@ -61,7 +56,7 @@ export default function AccountScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          Account
+          {t("account")}
         </Text>
         <View style={{ width: 22 }} />
       </View>
@@ -80,7 +75,7 @@ export default function AccountScreen() {
         </View>
 
         <Pressable
-          onPress={handleLogout}
+          onPress={() => setShowSignOutModal(true)}
           style={({ pressed }) => [
             styles.logoutBtn,
             {
@@ -92,10 +87,46 @@ export default function AccountScreen() {
         >
           <Feather name="log-out" size={18} color={theme.expense} />
           <Text style={[styles.logoutText, { color: theme.expense, fontFamily: "Inter_600SemiBold" }]}>
-            Sign Out
+            {t("signOut")}
           </Text>
         </Pressable>
       </View>
+
+      <Modal
+        visible={showSignOutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSignOutModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowSignOutModal(false)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Text style={styles.modalTitle}>{t("signOut")}</Text>
+            <Text style={styles.modalMessage}>{t("signOutConfirm")}</Text>
+            <View style={styles.modalButtons}>
+              <Pressable
+                onPress={() => setShowSignOutModal(false)}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  styles.modalCancelBtn,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={styles.modalCancelText}>{t("cancel")}</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleLogout}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  styles.modalConfirmBtn,
+                  { opacity: pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={styles.modalConfirmText}>{t("signOut")}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -139,4 +170,62 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   logoutText: { fontSize: 15 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  modalCard: {
+    backgroundColor: "#0A1F15",
+    borderRadius: 20,
+    padding: 28,
+    width: "100%",
+    maxWidth: 340,
+    alignItems: "center",
+    gap: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+    color: "#C9A84C",
+  },
+  modalMessage: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: "#D4D4D4",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  modalButtons: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+    width: "100%",
+  },
+  modalBtn: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: "center",
+  },
+  modalCancelBtn: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: "#CCCCCC",
+  },
+  modalConfirmBtn: {
+    backgroundColor: "#C9A84C",
+  },
+  modalConfirmText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: "#0A1F15",
+  },
 });

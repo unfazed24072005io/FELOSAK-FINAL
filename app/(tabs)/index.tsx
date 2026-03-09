@@ -1,6 +1,5 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   FlatList,
   Modal,
   Platform,
@@ -18,6 +17,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp, CashBook, Transaction } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP, formatEGPShort, formatDateGroup, formatTime } from "@/utils/format";
 import { getPaymentModeLabel } from "@/app/add-transaction";
@@ -38,6 +38,11 @@ function BooksListView() {
   const theme = isDark ? Colors.dark : Colors.light;
   const { books, setActiveBook, deleteBook } = useApp();
   const { user } = useAuth();
+  const { t } = useLanguage();
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [bookToDelete, setBookToDelete] = useState<CashBook | null>(null);
+  const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -45,25 +50,28 @@ function BooksListView() {
   const handleDeleteBook = useCallback(
     (book: CashBook) => {
       if (book.role !== "owner") {
-        Alert.alert("Cannot Delete", "Only the owner can delete this book.");
+        setShowCannotDeleteModal(true);
         return;
       }
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      Alert.alert(
-        "Delete Book",
-        `Delete "${book.name}" and all its data? This cannot be undone.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: () => deleteBook(book.id),
-          },
-        ]
-      );
+      setBookToDelete(book);
+      setShowDeleteModal(true);
     },
-    [deleteBook]
+    []
   );
+
+  const handleConfirmDelete = useCallback(() => {
+    if (bookToDelete) {
+      deleteBook(bookToDelete.id);
+    }
+    setShowDeleteModal(false);
+    setBookToDelete(null);
+  }, [bookToDelete, deleteBook]);
+
+  const handleCancelDelete = useCallback(() => {
+    setShowDeleteModal(false);
+    setBookToDelete(null);
+  }, []);
 
   const handleOpenBook = useCallback(
     (book: CashBook) => {
@@ -87,12 +95,12 @@ function BooksListView() {
             <Text
               style={[styles.greeting, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
             >
-              Misr Cash Book
+              {t("appName")}
             </Text>
             <Text
               style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}
             >
-              My Books
+              {t("myBooks")}
             </Text>
           </View>
           <View style={styles.headerBtns}>
@@ -150,7 +158,7 @@ function BooksListView() {
           <View style={[styles.userBanner, { backgroundColor: theme.tint + "18", borderColor: theme.tint + "44" }]}>
             <Feather name="user" size={14} color={theme.tint} />
             <Text style={[styles.userText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
-              Signed in as {user.displayName}
+              {t("signedInAs")} {user.displayName}
             </Text>
           </View>
         )}
@@ -159,7 +167,7 @@ function BooksListView() {
           <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Feather name="book-open" size={32} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              No books yet.{"\n"}Create your first cash book to get started.
+              {t("noBooksYet")}{"\n"}{t("createBook")}
             </Text>
           </View>
         ) : (
@@ -196,6 +204,79 @@ function BooksListView() {
       >
         <Feather name="plus" size={24} color="#FFFFFF" />
       </Pressable>
+
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelDelete}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+              {t("deleteBook")}
+            </Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {bookToDelete ? t("deleteBookConfirm", { name: bookToDelete.name }) : ""}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={handleCancelDelete}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                  {t("cancel")}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={handleConfirmDelete}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: "#FFF", fontFamily: "Inter_600SemiBold" }]}>
+                  {t("delete")}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showCannotDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCannotDeleteModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+              {t("cannotDelete")}
+            </Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {t("onlyOwnerDelete")}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setShowCannotDeleteModal(false)}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                  {t("cancel")}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -211,6 +292,8 @@ function BookCard({
   onPress: () => void;
   onLongPress: () => void;
 }) {
+  const { t } = useLanguage();
+  const roleLabel = book.role === "owner" ? t("owner") : book.role === "editor" ? t("editor") : t("viewer");
   return (
     <Pressable
       onPress={onPress}
@@ -248,7 +331,7 @@ function BookCard({
               },
             ]}
           >
-            {book.isCloud ? "Cloud" : "Local"}
+            {book.isCloud ? t("cloud") : t("local")}
           </Text>
         </View>
       </View>
@@ -268,7 +351,7 @@ function BookCard({
       ) : null}
       <View style={styles.bookFooter}>
         <Text style={[styles.bookRole, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-          {book.role}
+          {roleLabel}
         </Text>
         <Feather name="chevron-right" size={14} color={theme.textSecondary} />
       </View>
@@ -293,10 +376,12 @@ function BookDashboard() {
     transactions,
     deleteTransaction,
   } = useApp();
+  const { t } = useLanguage();
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [entryFilter, setEntryFilter] = useState<DashFilter>("all");
   const [payFilter, setPayFilter] = useState<DashPayFilter>("all");
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -345,20 +430,12 @@ function BookDashboard() {
 
   const handleDeleteAll = useCallback(() => {
     setMenuVisible(false);
-    Alert.alert(
-      "Delete All Entries",
-      "This will permanently delete all transactions in this book. Continue?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete All",
-          style: "destructive",
-          onPress: () => {
-            transactions.forEach((tx) => deleteTransaction(tx.id));
-          },
-        },
-      ]
-    );
+    setShowDeleteAllModal(true);
+  }, []);
+
+  const handleConfirmDeleteAll = useCallback(() => {
+    transactions.forEach((tx) => deleteTransaction(tx.id));
+    setShowDeleteAllModal(false);
   }, [transactions, deleteTransaction]);
 
   if (!activeBook) return null;
@@ -394,7 +471,7 @@ function BookDashboard() {
             {activeBook.name}
           </Text>
           <Text style={[styles.dashSubtitle, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            {activeBook.isCloud ? "You" + (activeBook.role !== "owner" ? ` (${activeBook.role})` : "") : "Local Book"}
+            {activeBook.isCloud ? (activeBook.role !== "owner" ? `(${activeBook.role === "editor" ? t("editor") : t("viewer")})` : "") : t("localBook")}
           </Text>
         </View>
         <View style={styles.dashHeaderRight}>
@@ -434,7 +511,7 @@ function BookDashboard() {
           style={[styles.filterChip, { backgroundColor: theme.card, borderColor: entryFilter !== "all" ? theme.tint + "88" : theme.border }]}
         >
           <Text style={[styles.filterChipText, { color: entryFilter !== "all" ? theme.tint : theme.text, fontFamily: entryFilter !== "all" ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
-            {entryFilter === "all" ? "Entry Type" : entryFilter === "income" ? "Cash In" : "Cash Out"}
+            {entryFilter === "all" ? t("entryType") : entryFilter === "income" ? t("cashIn") : t("cashOut")}
           </Text>
           <Feather name="chevron-down" size={12} color={entryFilter !== "all" ? theme.tint : theme.textSecondary} />
         </Pressable>
@@ -448,7 +525,7 @@ function BookDashboard() {
           style={[styles.filterChip, { backgroundColor: theme.card, borderColor: payFilter !== "all" ? theme.tint + "88" : theme.border }]}
         >
           <Text style={[styles.filterChipText, { color: payFilter !== "all" ? theme.tint : theme.text, fontFamily: payFilter !== "all" ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
-            {payFilter === "all" ? "Payment Mode" : getPaymentModeLabel(payFilter)}
+            {payFilter === "all" ? t("paymentMode") : getPaymentModeLabel(payFilter)}
           </Text>
           <Feather name="chevron-down" size={12} color={payFilter !== "all" ? theme.tint : theme.textSecondary} />
         </Pressable>
@@ -458,7 +535,7 @@ function BookDashboard() {
             style={[styles.filterChip, { backgroundColor: theme.expense + "15", borderColor: theme.expense + "44" }]}
           >
             <Feather name="x" size={14} color={theme.expense} />
-            <Text style={[styles.filterChipText, { color: theme.expense, fontFamily: "Inter_500Medium" }]}>Clear</Text>
+            <Text style={[styles.filterChipText, { color: theme.expense, fontFamily: "Inter_500Medium" }]}>{t("clear")}</Text>
           </Pressable>
         )}
       </ScrollView>
@@ -473,7 +550,7 @@ function BookDashboard() {
             <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                  Net Balance
+                  {t("netBalance")}
                 </Text>
                 <Text
                   style={[
@@ -490,7 +567,7 @@ function BookDashboard() {
               <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: theme.text, fontFamily: "Inter_400Regular" }]}>
-                  Total In (+)
+                  {t("totalInPlus")}
                 </Text>
                 <Text style={[styles.summaryIncome, { color: theme.income, fontFamily: "Inter_600SemiBold" }]}>
                   {formatEGP(filteredTotals.income)}
@@ -498,7 +575,7 @@ function BookDashboard() {
               </View>
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: theme.text, fontFamily: "Inter_400Regular" }]}>
-                  Total Out (-)
+                  {t("totalOutMinus")}
                 </Text>
                 <Text style={[styles.summaryExpense, { color: theme.expense, fontFamily: "Inter_600SemiBold" }]}>
                   {formatEGP(filteredTotals.expense)}
@@ -509,14 +586,14 @@ function BookDashboard() {
                 style={({ pressed }) => [styles.viewReports, { opacity: pressed ? 0.6 : 1 }]}
               >
                 <Text style={[styles.viewReportsText, { color: theme.tint, fontFamily: "Inter_600SemiBold" }]}>
-                  VIEW REPORTS
+                  {t("viewReportsBtn")}
                 </Text>
                 <Feather name="chevron-right" size={14} color={theme.tint} />
               </Pressable>
             </View>
 
             <Text style={[styles.entryCount, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              Showing {filtered.length} {filtered.length === 1 ? "entry" : "entries"}
+              {t("showingEntries", { count: filtered.length, label: filtered.length === 1 ? t("entry") : t("entries") })}
             </Text>
           </View>
         }
@@ -540,7 +617,7 @@ function BookDashboard() {
           <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border, marginHorizontal: 16 }]}>
             <Feather name="inbox" size={32} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              No entries yet.{"\n"}Tap Cash In or Cash Out below to start.
+              {t("noEntriesYet")}{"\n"}{t("tapCashInOut")}
             </Text>
           </View>
         }
@@ -569,7 +646,7 @@ function BookDashboard() {
           testID="cash-in-btn"
         >
           <Feather name="plus" size={18} color="#FFFFFF" />
-          <Text style={[styles.cashBtnText, { fontFamily: "Inter_700Bold" }]}>CASH IN</Text>
+          <Text style={[styles.cashBtnText, { fontFamily: "Inter_700Bold" }]}>{t("cashInCaps")}</Text>
         </Pressable>
         <Pressable
           onPress={() => {
@@ -583,7 +660,7 @@ function BookDashboard() {
           testID="cash-out-btn"
         >
           <Feather name="minus" size={18} color="#FFFFFF" />
-          <Text style={[styles.cashBtnText, { fontFamily: "Inter_700Bold" }]}>CASH OUT</Text>
+          <Text style={[styles.cashBtnText, { fontFamily: "Inter_700Bold" }]}>{t("cashOutCaps")}</Text>
         </Pressable>
       </View>
 
@@ -606,7 +683,7 @@ function BookDashboard() {
           >
             <MenuItem
               icon="settings"
-              label="Book Settings"
+              label={t("bookSettings")}
               theme={theme}
               onPress={() => {
                 setMenuVisible(false);
@@ -618,7 +695,7 @@ function BookDashboard() {
               <>
                 <MenuItem
                   icon="users"
-                  label="Team Members"
+                  label={t("teamMembers")}
                   theme={theme}
                   onPress={() => {
                     setMenuVisible(false);
@@ -630,7 +707,7 @@ function BookDashboard() {
             )}
             <MenuItem
               icon="bar-chart-2"
-              label="View Reports"
+              label={t("viewReports")}
               theme={theme}
               onPress={() => {
                 setMenuVisible(false);
@@ -640,7 +717,7 @@ function BookDashboard() {
             <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
             <MenuItem
               icon="download"
-              label="Generate Report"
+              label={t("generateReport")}
               theme={theme}
               onPress={() => {
                 setMenuVisible(false);
@@ -650,13 +727,55 @@ function BookDashboard() {
             <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
             <MenuItem
               icon="trash-2"
-              label="Delete All Entries"
+              label={t("deleteAllEntries")}
               theme={theme}
               color={theme.expense}
               onPress={handleDeleteAll}
             />
           </View>
         </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showDeleteAllModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteAllModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+              {t("deleteAllEntries")}
+            </Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {t("confirmDeleteMessage")}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setShowDeleteAllModal(false)}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                  {t("cancel")}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={handleConfirmDeleteAll}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: "#FFF", fontFamily: "Inter_600SemiBold" }]}>
+                  {t("delete")}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -1048,4 +1167,39 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   menuItemText: { fontSize: 15 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 20,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalBtnText: {
+    fontSize: 15,
+  },
 });

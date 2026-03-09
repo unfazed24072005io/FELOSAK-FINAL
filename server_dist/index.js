@@ -9,6 +9,7 @@ import express from "express";
 
 // server/routes.ts
 import { createServer } from "node:http";
+import path from "node:path";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 
@@ -323,7 +324,8 @@ async function registerRoutes(app2) {
     session({
       store: new PgSession({
         pool,
-        createTableIfMissing: true
+        createTableIfMissing: true,
+        pruneSessionInterval: 60 * 15
       }),
       secret: process.env.SESSION_SECRET || "misr-cashbook-secret-dev",
       resave: false,
@@ -648,7 +650,7 @@ async function registerRoutes(app2) {
     }
   });
   app2.get("/store/:bookId", async (_req, res) => {
-    res.sendFile("storefront.html", { root: __dirname + "/templates" });
+    res.sendFile("storefront.html", { root: path.resolve(process.cwd(), "server", "templates") });
   });
   const httpServer = createServer(app2);
   return httpServer;
@@ -656,7 +658,7 @@ async function registerRoutes(app2) {
 
 // server/index.ts
 import * as fs from "fs";
-import * as path from "path";
+import * as path2 from "path";
 var app = express();
 app.set("trust proxy", 1);
 var log = console.log;
@@ -702,7 +704,7 @@ function setupBodyParsing(app2) {
 function setupRequestLogging(app2) {
   app2.use((req, res, next) => {
     const start = Date.now();
-    const path2 = req.path;
+    const path3 = req.path;
     let capturedJsonResponse = void 0;
     const originalResJson = res.json;
     res.json = function(bodyJson, ...args) {
@@ -710,9 +712,9 @@ function setupRequestLogging(app2) {
       return originalResJson.apply(res, [bodyJson, ...args]);
     };
     res.on("finish", () => {
-      if (!path2.startsWith("/api")) return;
+      if (!path3.startsWith("/api")) return;
       const duration = Date.now() - start;
-      let logLine = `${req.method} ${path2} ${res.statusCode} in ${duration}ms`;
+      let logLine = `${req.method} ${path3} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
@@ -726,7 +728,7 @@ function setupRequestLogging(app2) {
 }
 function getAppName() {
   try {
-    const appJsonPath = path.resolve(process.cwd(), "app.json");
+    const appJsonPath = path2.resolve(process.cwd(), "app.json");
     const appJsonContent = fs.readFileSync(appJsonPath, "utf-8");
     const appJson = JSON.parse(appJsonContent);
     return appJson.expo?.name || "App Landing Page";
@@ -735,7 +737,7 @@ function getAppName() {
   }
 }
 function serveExpoManifest(platform, res) {
-  const manifestPath = path.resolve(
+  const manifestPath = path2.resolve(
     process.cwd(),
     "static-build",
     platform,
@@ -769,7 +771,7 @@ function serveLandingPage({
   res.status(200).send(html);
 }
 function configureExpoAndLanding(app2) {
-  const templatePath = path.resolve(
+  const templatePath = path2.resolve(
     process.cwd(),
     "server",
     "templates",
@@ -799,12 +801,12 @@ function configureExpoAndLanding(app2) {
     }
     next();
   });
-  app2.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
-  app2.use(express.static(path.resolve(process.cwd(), "static-build")));
-  app2.use(express.static(path.resolve(process.cwd(), "dist")));
+  app2.use("/assets", express.static(path2.resolve(process.cwd(), "assets")));
+  app2.use(express.static(path2.resolve(process.cwd(), "static-build")));
+  app2.use(express.static(path2.resolve(process.cwd(), "dist")));
   app2.use((req, res, next) => {
     if (req.path.startsWith("/api") || req.method !== "GET") return next();
-    const indexPath = path.resolve(process.cwd(), "dist", "index.html");
+    const indexPath = path2.resolve(process.cwd(), "dist", "index.html");
     if (fs.existsSync(indexPath)) {
       return res.sendFile(indexPath);
     }

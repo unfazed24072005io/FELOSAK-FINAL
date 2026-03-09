@@ -133,7 +133,7 @@ export default function AddProductScreen() {
           <Feather name="arrow-left" size={22} color={theme.textSecondary} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-          {editProduct ? "Edit Product" : "Add Product"}
+          {editProduct ? t("editProduct") : t("addProduct")}
         </Text>
         <View style={styles.headerRight}>
           {editProduct && (
@@ -157,7 +157,7 @@ export default function AddProductScreen() {
       >
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Product Name *
+            {t("productName")} *
           </Text>
           <View style={[styles.inputBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Feather name="package" size={16} color={theme.textSecondary} />
@@ -209,7 +209,7 @@ export default function AddProductScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Price (EGP) *
+            {t("priceEgp")} *
           </Text>
           <View style={[styles.amountRow, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.egpSymbol, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
@@ -274,7 +274,7 @@ export default function AddProductScreen() {
               >
                 <Feather name="camera" size={20} color={theme.tint} />
                 <Text style={[styles.attachBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                  Take Photo
+                  {t("takePhoto")}
                 </Text>
               </Pressable>
               <Pressable
@@ -286,7 +286,7 @@ export default function AddProductScreen() {
               >
                 <Feather name="image" size={20} color={theme.tint} />
                 <Text style={[styles.attachBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                  Gallery
+                  {t("gallery")}
                 </Text>
               </Pressable>
             </View>
@@ -295,7 +295,7 @@ export default function AddProductScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            In Stock
+            {t("inStock")}
           </Text>
           <Pressable
             onPress={() => {
@@ -307,7 +307,7 @@ export default function AddProductScreen() {
             <View style={styles.toggleInfo}>
               <Feather name="check-circle" size={18} color={inStock ? theme.income : theme.textSecondary} />
               <Text style={[styles.toggleLabel, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
-                {inStock ? "In Stock" : "Out of Stock"}
+                {inStock ? t("inStock") : t("outOfStock")}
               </Text>
             </View>
             <View
@@ -345,7 +345,7 @@ export default function AddProductScreen() {
         >
           <Feather name="check" size={20} color="#FFF" />
           <Text style={[styles.saveButtonText, { fontFamily: "Inter_600SemiBold" }]}>
-            {editProduct ? "Update Product" : "Save Product"}
+            {editProduct ? t("update") : t("save")}
           </Text>
         </Pressable>
       </View>
@@ -365,14 +365,14 @@ export default function AddProductScreen() {
                   onPress={() => setShowDeleteConfirm(false)}
                   style={({ pressed }) => [styles.modalCancelBtn, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
                 >
-                  <Text style={[styles.modalCancelTxt, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>Cancel</Text>
+                  <Text style={[styles.modalCancelTxt, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>{t("cancel")}</Text>
                 </Pressable>
                 <Pressable
                   onPress={handleConfirmDelete}
                   style={({ pressed }) => [styles.modalDeleteBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}
                   testID="confirm-delete-product-btn"
                 >
-                  <Text style={[styles.modalDeleteTxt, { fontFamily: "Inter_600SemiBold" }]}>Delete</Text>
+                  <Text style={[styles.modalDeleteTxt, { fontFamily: "Inter_600SemiBold" }]}>{t("delete")}</Text>
                 </Pressable>
               </View>
             </View>

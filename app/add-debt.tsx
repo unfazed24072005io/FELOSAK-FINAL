@@ -105,7 +105,7 @@ export default function AddDebtScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          {editDebt ? "Edit Entry" : "New AR/AP Entry"}
+          {editDebt ? t("editEntry") : t("addEntry")}
         </Text>
         <View style={styles.headerRight}>
           {editDebt && (
@@ -132,7 +132,7 @@ export default function AddDebtScreen() {
             ]}
           >
             <Text style={[styles.saveBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>
-              {editDebt ? "Update" : "Save"}
+              {editDebt ? t("update") : t("save")}
             </Text>
           </Pressable>
         </View>
@@ -177,7 +177,7 @@ export default function AddDebtScreen() {
                 },
               ]}
             >
-              Owed to Me
+              {t("owedToMe")}
             </Text>
           </Pressable>
           <Pressable
@@ -207,7 +207,7 @@ export default function AddDebtScreen() {
                 },
               ]}
             >
-              I Owe
+              {t("iOwe")}
             </Text>
           </Pressable>
         </View>
@@ -215,7 +215,7 @@ export default function AddDebtScreen() {
         {/* Name */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Name / Company
+            {t("nameCompany")}
           </Text>
           <View
             style={[
@@ -268,7 +268,7 @@ export default function AddDebtScreen() {
         {/* Amount */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Amount (EGP)
+            {t("amount")} (EGP)
           </Text>
           <View
             style={[
@@ -299,7 +299,7 @@ export default function AddDebtScreen() {
         {/* Due Date */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Due Date (optional)
+            {t("dueDate")} (optional)
           </Text>
           <View
             style={[
@@ -325,7 +325,7 @@ export default function AddDebtScreen() {
         {/* Note */}
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Note (optional)
+            {t("note")} (optional)
           </Text>
           <View
             style={[
@@ -364,7 +364,7 @@ export default function AddDebtScreen() {
           <Pressable style={styles.modalOverlay} onPress={() => setShowDeleteConfirm(false)}>
             <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                Delete Entry
+                {t("delete")}
               </Text>
               <Text style={[styles.modalMsg, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
                 Delete this entry for {editDebt?.name}? This cannot be undone.
@@ -374,14 +374,14 @@ export default function AddDebtScreen() {
                   onPress={() => setShowDeleteConfirm(false)}
                   style={({ pressed }) => [styles.modalCancelBtn, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
                 >
-                  <Text style={[styles.modalCancelTxt, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>Cancel</Text>
+                  <Text style={[styles.modalCancelTxt, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>{t("cancel")}</Text>
                 </Pressable>
                 <Pressable
                   onPress={handleConfirmDeleteDebt}
                   style={({ pressed }) => [styles.modalDeleteBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}
                   testID="confirm-delete-debt-btn"
                 >
-                  <Text style={[styles.modalDeleteTxt, { fontFamily: "Inter_600SemiBold" }]}>Delete</Text>
+                  <Text style={[styles.modalDeleteTxt, { fontFamily: "Inter_600SemiBold" }]}>{t("delete")}</Text>
                 </Pressable>
               </View>
             </View>

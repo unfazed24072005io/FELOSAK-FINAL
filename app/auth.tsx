@@ -16,6 +16,7 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 
 export default function AuthScreen() {
@@ -24,6 +25,7 @@ export default function AuthScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { login, register } = useAuth();
+  const { t } = useLanguage();
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
@@ -89,7 +91,7 @@ export default function AuthScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          {mode === "login" ? "Sign In" : "Create Account"}
+          {mode === "login" ? t("signInTitle") : t("signInCreateAccount")}
         </Text>
         <View style={{ width: 22 }} />
       </View>
@@ -111,7 +113,7 @@ export default function AuthScreen() {
         {mode === "register" && (
           <View style={styles.fieldGroup}>
             <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-              Display Name
+              {t("displayName")}
             </Text>
             <TextInput
               style={[
@@ -135,7 +137,7 @@ export default function AuthScreen() {
 
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Username
+            {t("username")}
           </Text>
           <TextInput
             style={[
@@ -159,7 +161,7 @@ export default function AuthScreen() {
 
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Password
+            {t("password")}
           </Text>
           <TextInput
             style={[
@@ -204,7 +206,7 @@ export default function AuthScreen() {
             <ActivityIndicator color="#FFF" size="small" />
           ) : (
             <Text style={[styles.submitText, { fontFamily: "Inter_600SemiBold" }]}>
-              {mode === "login" ? "Sign In" : "Create Account"}
+              {mode === "login" ? t("signInTitle") : t("signInCreateAccount")}
             </Text>
           )}
         </Pressable>

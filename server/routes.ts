@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "node:http";
+import path from "node:path";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
@@ -58,6 +59,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       store: new PgSession({
         pool: pool as any,
         createTableIfMissing: true,
+        pruneSessionInterval: 60 * 15,
       }),
       secret: process.env.SESSION_SECRET || "misr-cashbook-secret-dev",
       resave: false,
@@ -417,7 +419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/store/:bookId", async (_req, res) => {
-    res.sendFile("storefront.html", { root: __dirname + "/templates" });
+    res.sendFile("storefront.html", { root: path.resolve(process.cwd(), "server", "templates") });
   });
 
   const httpServer = createServer(app);

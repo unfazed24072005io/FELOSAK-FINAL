@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
-  Alert,
   FlatList,
   Linking,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -29,6 +29,8 @@ export default function DebtorsScreen() {
   const { debts, deleteDebt, updateDebt, activeBook } = useApp();
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<TabDir>("owed_to_me");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [debtToDelete, setDebtToDelete] = useState<Debt | null>(null);
 
   if (!activeBook) {
     const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
@@ -39,7 +41,7 @@ export default function DebtorsScreen() {
         </View>
         <View style={styles.emptyContent}>
           <Feather name="book-open" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Select a book from Overview to see debts</Text>
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookDebts")}</Text>
         </View>
       </View>
     );
@@ -85,17 +87,24 @@ export default function DebtorsScreen() {
   const handleDelete = useCallback(
     (debt: Debt) => {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      Alert.alert("Delete Entry", `Delete record for "${debt.name}"?`, [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => deleteDebt(debt.id),
-        },
-      ]);
+      setDebtToDelete(debt);
+      setShowDeleteModal(true);
     },
-    [deleteDebt]
+    []
   );
+
+  const handleConfirmDelete = useCallback(() => {
+    if (debtToDelete) {
+      deleteDebt(debtToDelete.id);
+    }
+    setShowDeleteModal(false);
+    setDebtToDelete(null);
+  }, [debtToDelete, deleteDebt]);
+
+  const handleCancelDelete = useCallback(() => {
+    setShowDeleteModal(false);
+    setDebtToDelete(null);
+  }, []);
 
   const renderItem = useCallback(
     ({ item }: { item: Debt }) => (
@@ -293,8 +302,8 @@ export default function DebtorsScreen() {
               ]}
             >
               {activeTab === "owed_to_me"
-                ? "No one owes you anything"
-                : "You don't owe anyone"}
+                ? t("noOneOwesYou")
+                : t("youDontOweAnyone")}
             </Text>
             <Pressable
               onPress={() => router.push("/add-debt")}
@@ -313,6 +322,49 @@ export default function DebtorsScreen() {
           <View style={[styles.separator, { backgroundColor: theme.border }]} />
         )}
       />
+
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelDelete}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+              {t("deleteEntryTitle")}
+            </Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {debtToDelete ? t("deleteEntryMessage", { name: debtToDelete.name }) : ""}
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={handleCancelDelete}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                  {t("cancel")}
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="confirm-delete-debt-btn"
+                onPress={handleConfirmDelete}
+                style={({ pressed }) => [
+                  styles.modalBtn,
+                  { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.modalBtnText, { color: "#FFF", fontFamily: "Inter_600SemiBold" }]}>
+                  {t("delete")}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -438,7 +490,7 @@ function DebtCard({
                   },
                 ]}
               >
-                {isOverdue && !debt.settled ? "Overdue · " : "Due "}
+                {isOverdue && !debt.settled ? t("overdue") + " · " : t("due") + " "}
                 {formatDate(debt.dueDate)}
               </Text>
             </View>
@@ -584,5 +636,40 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: 20,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalBtnText: {
+    fontSize: 15,
   },
 });

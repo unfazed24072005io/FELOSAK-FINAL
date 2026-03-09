@@ -16,6 +16,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 
 export default function CreateBookScreen() {
@@ -25,6 +26,7 @@ export default function CreateBookScreen() {
   const theme = isDark ? Colors.dark : Colors.light;
   const { createBook } = useApp();
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -36,7 +38,7 @@ export default function CreateBookScreen() {
 
   const handleCreate = useCallback(async () => {
     if (!name.trim()) {
-      setError("Book name is required");
+      setError(t("bookNameRequired"));
       return;
     }
     if (isCloud && !user) {
@@ -54,7 +56,7 @@ export default function CreateBookScreen() {
     } finally {
       setLoading(false);
     }
-  }, [name, description, isCloud, user, createBook]);
+  }, [name, description, isCloud, user, createBook, t]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -78,7 +80,7 @@ export default function CreateBookScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          New Book
+          {t("newBook")}
         </Text>
         <View style={{ width: 22 }} />
       </View>
@@ -90,7 +92,7 @@ export default function CreateBookScreen() {
       >
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Book Name
+            {t("bookName")}
           </Text>
           <TextInput
             style={[
@@ -137,7 +139,7 @@ export default function CreateBookScreen() {
 
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Storage Type
+            {t("storageType")}
           </Text>
           <View style={styles.typeRow}>
             <Pressable
@@ -152,10 +154,10 @@ export default function CreateBookScreen() {
             >
               <Feather name="smartphone" size={20} color={!isCloud ? theme.tint : theme.textSecondary} />
               <Text style={[styles.typeName, { color: !isCloud ? theme.tint : theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                Local
+                {t("local")}
               </Text>
               <Text style={[styles.typeDesc, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                Stored on device only
+                {t("storedOnDeviceOnly")}
               </Text>
             </Pressable>
             <Pressable
@@ -176,10 +178,10 @@ export default function CreateBookScreen() {
             >
               <Feather name="cloud" size={20} color={isCloud ? theme.income : theme.textSecondary} />
               <Text style={[styles.typeName, { color: isCloud ? theme.income : theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                Cloud
+                {t("cloud")}
               </Text>
               <Text style={[styles.typeDesc, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                {user ? "Synced & shareable" : "Sign in required"}
+                {user ? t("syncedAndShareable") : t("signInRequired")}
               </Text>
             </Pressable>
           </View>
@@ -193,26 +195,43 @@ export default function CreateBookScreen() {
           </View>
         ) : null}
 
-        <Pressable
-          onPress={handleCreate}
-          disabled={loading}
-          style={({ pressed }) => [
-            styles.createBtn,
-            {
-              backgroundColor: theme.tint,
-              opacity: pressed || loading ? 0.7 : 1,
-            },
-          ]}
-          testID="create-book-submit"
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFF" size="small" />
-          ) : (
-            <Text style={[styles.createText, { fontFamily: "Inter_600SemiBold" }]}>
-              Create Book
+        <View style={styles.buttonRow}>
+          <Pressable
+            onPress={() => router.back()}
+            style={({ pressed }) => [
+              styles.cancelBtn,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.cancelText, { color: theme.textSecondary, fontFamily: "Inter_600SemiBold" }]}>
+              {t("cancel")}
             </Text>
-          )}
-        </Pressable>
+          </Pressable>
+          <Pressable
+            onPress={handleCreate}
+            disabled={loading}
+            style={({ pressed }) => [
+              styles.createBtn,
+              {
+                backgroundColor: theme.tint,
+                opacity: pressed || loading ? 0.7 : 1,
+              },
+            ]}
+            testID="create-book-submit"
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFF" size="small" />
+            ) : (
+              <Text style={[styles.createText, { fontFamily: "Inter_600SemiBold" }]}>
+                {t("save")}
+              </Text>
+            )}
+          </Pressable>
+        </View>
       </KeyboardAwareScrollView>
     </View>
   );
@@ -260,11 +279,24 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   errorText: { fontSize: 14, textAlign: "center" },
+  buttonRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  cancelBtn: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  cancelText: { fontSize: 16 },
   createBtn: {
+    flex: 1,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: "center",
-    marginTop: 8,
   },
   createText: { color: "#FFF", fontSize: 16 },
 });

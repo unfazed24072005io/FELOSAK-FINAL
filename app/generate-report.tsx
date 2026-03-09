@@ -17,6 +17,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import * as Print from "expo-print";
 import { useApp, Transaction } from "@/context/AppContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP } from "@/utils/format";
 import { PAYMENT_MODES, getPaymentModeLabel } from "@/app/add-transaction";
@@ -39,6 +40,7 @@ export default function GenerateReportScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { transactions, activeBook, totalIncome, totalExpense, totalBalance } = useApp();
+  const { t } = useLanguage();
 
   const [reportType, setReportType] = useState<ReportType>("all_entries");
   const [entryTypeFilter, setEntryTypeFilter] = useState<EntryTypeFilter>("all");
@@ -233,13 +235,19 @@ export default function GenerateReportScreen() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${bookName}_report.csv`;
+        a.download = `${bookName.replace(/[^a-zA-Z0-9_\u0600-\u06FF]/g, "_")}_report.csv`;
         a.click();
         URL.revokeObjectURL(url);
       } else {
-        const fileUri = FileSystem.documentDirectory + `${bookName.replace(/\s+/g, "_")}_report.csv`;
+        const safeName = bookName.replace(/[^a-zA-Z0-9_\u0600-\u06FF]/g, "_");
+        const fileUri = FileSystem.documentDirectory + `${safeName}_report.csv`;
         await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
-        await Sharing.shareAsync(fileUri, { mimeType: "text/csv", dialogTitle: "Save Excel Report" });
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(fileUri, { mimeType: "text/csv", dialogTitle: t("excelReport") });
+        } else {
+          return;
+        }
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
@@ -267,7 +275,12 @@ export default function GenerateReportScreen() {
         }
       } else {
         const { uri } = await Print.printToFileAsync({ html });
-        await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Save PDF Report" });
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: t("pdfReport") });
+        } else {
+          return;
+        }
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
@@ -282,9 +295,9 @@ export default function GenerateReportScreen() {
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const REPORT_OPTIONS: { id: ReportType; title: string; subtitle: string }[] = [
-    { id: "all_entries", title: "All Entries Report", subtitle: "List of all entries and details" },
-    { id: "day_summary", title: "Day-wise Summary", subtitle: "Day-wise total in, out & balance" },
-    { id: "category_summary", title: "Category-wise Summary", subtitle: "Category-wise total in, out & balance" },
+    { id: "all_entries", title: t("allEntriesReport"), subtitle: t("allEntriesReport") },
+    { id: "day_summary", title: t("daySummary"), subtitle: t("daySummary") },
+    { id: "category_summary", title: t("categorySummary"), subtitle: t("categorySummary") },
   ];
 
   return (
@@ -294,7 +307,7 @@ export default function GenerateReportScreen() {
           <Feather name="arrow-left" size={22} color={theme.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-          Generate Report
+          {t("generateReport")}
         </Text>
         <View style={{ width: 22 }} />
       </View>
@@ -302,23 +315,23 @@ export default function GenerateReportScreen() {
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 40 }]}>
         <View style={[styles.filterSummary, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.filterSummaryTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-            Report will be generated for
+            {t("generateReport")}
           </Text>
           <View style={styles.filterSummaryGrid}>
             <View style={styles.filterSummaryItem}>
-              <Text style={[styles.filterLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Duration</Text>
-              <Text style={[styles.filterValue, { color: theme.tint, fontFamily: "Inter_600SemiBold" }]}>All Time</Text>
+              <Text style={[styles.filterLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("duration")}</Text>
+              <Text style={[styles.filterValue, { color: theme.tint, fontFamily: "Inter_600SemiBold" }]}>{t("allTime")}</Text>
             </View>
             <View style={styles.filterSummaryItem}>
-              <Text style={[styles.filterLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Entry Type</Text>
+              <Text style={[styles.filterLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("entryType")}</Text>
               <Text style={[styles.filterValue, { color: theme.tint, fontFamily: "Inter_600SemiBold" }]}>
-                {entryTypeFilter === "all" ? "All" : entryTypeFilter === "income" ? "Cash In" : "Cash Out"}
+                {entryTypeFilter === "all" ? t("all") : entryTypeFilter === "income" ? t("cashIn") : t("cashOut")}
               </Text>
             </View>
             <View style={styles.filterSummaryItem}>
-              <Text style={[styles.filterLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Payment Mode</Text>
+              <Text style={[styles.filterLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("paymentMode")}</Text>
               <Text style={[styles.filterValue, { color: theme.tint, fontFamily: "Inter_600SemiBold" }]}>
-                {paymentModeFilter === "all" ? "All" : getPaymentModeLabel(paymentModeFilter)}
+                {paymentModeFilter === "all" ? t("all") : getPaymentModeLabel(paymentModeFilter)}
               </Text>
             </View>
           </View>
@@ -326,11 +339,11 @@ export default function GenerateReportScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-            Filter Options
+            {t("filterBy")}
           </Text>
 
           <Text style={[styles.chipLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Entry Type
+            {t("entryType")}
           </Text>
           <View style={styles.chipRow}>
             {(["all", "income", "expense"] as EntryTypeFilter[]).map((f) => (
@@ -349,14 +362,14 @@ export default function GenerateReportScreen() {
                   color: entryTypeFilter === f ? theme.tint : theme.text,
                   fontFamily: entryTypeFilter === f ? "Inter_600SemiBold" : "Inter_400Regular",
                 }]}>
-                  {f === "all" ? "All" : f === "income" ? "Cash In" : "Cash Out"}
+                  {f === "all" ? t("all") : f === "income" ? t("cashIn") : t("cashOut")}
                 </Text>
               </Pressable>
             ))}
           </View>
 
           <Text style={[styles.chipLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Payment Mode
+            {t("paymentMode")}
           </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
             <View style={styles.chipRow}>
@@ -373,7 +386,7 @@ export default function GenerateReportScreen() {
                 <Text style={[styles.chipText, {
                   color: paymentModeFilter === "all" ? theme.tint : theme.text,
                   fontFamily: paymentModeFilter === "all" ? "Inter_600SemiBold" : "Inter_400Regular",
-                }]}>All</Text>
+                }]}>{t("all")}</Text>
               </Pressable>
               {PAYMENT_MODES.map((m) => (
                 <Pressable
@@ -400,7 +413,7 @@ export default function GenerateReportScreen() {
 
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-            Select Report Type
+            {t("reportType")}
           </Text>
           {REPORT_OPTIONS.map((opt) => (
             <Pressable
@@ -431,23 +444,23 @@ export default function GenerateReportScreen() {
 
         <View style={[styles.statsPreview, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.statsPreviewTitle, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {filtered.length} entries matched
+            {t("entriesMatched", { count: String(filtered.length) })}
           </Text>
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>In</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("cashIn")}</Text>
               <Text style={[styles.statValue, { color: theme.income, fontFamily: "Inter_600SemiBold" }]}>
                 {formatEGP(filteredTotals.income)}
               </Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Out</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("cashOut")}</Text>
               <Text style={[styles.statValue, { color: theme.expense, fontFamily: "Inter_600SemiBold" }]}>
                 {formatEGP(filteredTotals.expense)}
               </Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Net</Text>
+              <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("netBalance")}</Text>
               <Text style={[styles.statValue, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
                 {formatEGP(filteredTotals.balance)}
               </Text>
@@ -466,7 +479,7 @@ export default function GenerateReportScreen() {
         >
           <Feather name="grid" size={18} color={theme.tint} />
           <Text style={[styles.excelBtnText, { color: theme.tint, fontFamily: "Inter_600SemiBold" }]}>
-            GENERATE EXCEL
+            {t("generateExcel")}
           </Text>
         </Pressable>
 
@@ -481,7 +494,7 @@ export default function GenerateReportScreen() {
         >
           <Feather name="file-text" size={18} color="#FFF" />
           <Text style={[styles.pdfBtnText, { fontFamily: "Inter_600SemiBold" }]}>
-            GENERATE PDF
+            {t("generatePdf")}
           </Text>
         </Pressable>
       </ScrollView>

@@ -203,6 +203,23 @@ shared/
 - Egyptian market context: EGP currency symbol ج.م throughout
 - NO emojis — use @expo/vector-icons Feather icons only
 
+## Deployment
+- Build: `npm install && npx expo export --platform web --output-dir dist && npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist`
+- Run: `NODE_ENV=production node server_dist/index.js`
+- Server serves both static web build (dist/) and API routes
+- SPA fallback serves dist/index.html for non-API GET requests
+- Session cookies secured in production (secure: true, trust proxy)
+
 ## Workflows
 - `Start Backend`: `npm run server:dev` — Express on port 5000
 - `Start Frontend`: `npm run expo:dev` — Expo Metro on port 8081
+
+## Bug Fix History
+- All `req.params` wrapped via `param()` helper for Express 5 compatibility
+- Session table pruning enabled (pruneSessionInterval: 15min)
+- Storefront template path uses `process.cwd()` instead of `__dirname` (correct in esbuild bundle)
+- All screens fully internationalized (40+ new translation keys in en/ar)
+- All destructive actions use themed Modal instead of Alert.alert
+- File sharing checks `Sharing.isAvailableAsync()` before sharing
+- Filenames sanitized for both web and native exports
+- Auth screen uses dedicated `signInTitle` key (not settings subtitle)
