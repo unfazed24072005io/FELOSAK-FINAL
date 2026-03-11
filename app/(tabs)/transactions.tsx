@@ -33,28 +33,13 @@ export default function TransactionsScreen() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
 
-  if (!activeBook) {
-    const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-    return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("transactions")}</Text>
-        </View>
-        <View style={styles.emptyContent}>
-          <Feather name="book-open" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookTransactions")}</Text>
-        </View>
-      </View>
-    );
-  }
+  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const filtered = useMemo(() => {
     if (filter === "all") return transactions;
     return transactions.filter((t) => t.type === filter);
   }, [transactions, filter]);
-
-  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const handleDelete = useCallback(
     (tx: Transaction) => {
@@ -65,18 +50,18 @@ export default function TransactionsScreen() {
     []
   );
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = useCallback(() => {
     if (txToDelete) {
       deleteTransaction(txToDelete.id);
     }
     setShowDeleteModal(false);
     setTxToDelete(null);
-  };
+  }, [txToDelete, deleteTransaction]);
 
-  const handleCancelDelete = () => {
+  const handleCancelDelete = useCallback(() => {
     setShowDeleteModal(false);
     setTxToDelete(null);
-  };
+  }, []);
 
   const handleEdit = useCallback((tx: Transaction) => {
     router.push({ pathname: "/add-transaction", params: { editId: tx.id } });
@@ -93,6 +78,20 @@ export default function TransactionsScreen() {
     ),
     [theme, handleEdit, handleDelete]
   );
+
+  if (!activeBook) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("transactions")}</Text>
+        </View>
+        <View style={styles.emptyContent}>
+          <Feather name="book-open" size={44} color={theme.textSecondary} />
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookTransactions")}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>

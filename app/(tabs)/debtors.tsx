@@ -32,20 +32,8 @@ export default function DebtorsScreen() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [debtToDelete, setDebtToDelete] = useState<Debt | null>(null);
 
-  if (!activeBook) {
-    const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-    return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("arAp")}</Text>
-        </View>
-        <View style={styles.emptyContent}>
-          <Feather name="book-open" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookDebts")}</Text>
-        </View>
-      </View>
-    );
-  }
+  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const filtered = useMemo(
     () => debts.filter((d) => d.direction === activeTab && !d.settled),
@@ -72,9 +60,6 @@ export default function DebtorsScreen() {
         .reduce((sum, d) => sum + d.amount, 0),
     [debts]
   );
-
-  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const handleSettle = useCallback(
     (debt: Debt) => {
@@ -121,6 +106,20 @@ export default function DebtorsScreen() {
     ),
     [theme, handleSettle, handleDelete, t]
   );
+
+  if (!activeBook) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("arAp")}</Text>
+        </View>
+        <View style={styles.emptyContent}>
+          <Feather name="book-open" size={44} color={theme.textSecondary} />
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookDebts")}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>

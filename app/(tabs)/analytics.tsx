@@ -30,6 +30,9 @@ export default function AnalyticsScreen() {
   const { transactions, totalIncome, totalExpense, totalBalance, activeBook } = useApp();
   const { t } = useLanguage();
 
+  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
   const categoryLabel = (cat: string) => {
     const map: Record<string, string> = {
       Sales: t("sales"),
@@ -50,24 +53,6 @@ export default function AnalyticsScreen() {
     };
     return map[cat] || cat;
   };
-
-  if (!activeBook) {
-    const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-    return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("analytics")}</Text>
-        </View>
-        <View style={styles.emptyContent}>
-          <Feather name="book-open" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookAnalytics")}</Text>
-        </View>
-      </View>
-    );
-  }
-
-  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const last6Months = useMemo(() => {
     const months: { label: string; income: number; expense: number }[] = [];
@@ -126,6 +111,20 @@ export default function AnalyticsScreen() {
     if (totalIncome === 0) return 0;
     return Math.max(0, ((totalIncome - totalExpense) / totalIncome) * 100);
   }, [totalIncome, totalExpense]);
+
+  if (!activeBook) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("analytics")}</Text>
+        </View>
+        <View style={styles.emptyContent}>
+          <Feather name="book-open" size={44} color={theme.textSecondary} />
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("selectBookAnalytics")}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>

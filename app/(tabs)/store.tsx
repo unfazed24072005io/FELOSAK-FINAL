@@ -35,34 +35,8 @@ export default function StoreScreen() {
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
-  if (!activeBook) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View
-          style={[
-            styles.header,
-            {
-              paddingTop: topPad + 16,
-              borderBottomColor: theme.border,
-              backgroundColor: theme.background,
-            },
-          ]}
-        >
-          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-            {t("store")}
-          </Text>
-        </View>
-        <View style={styles.emptyContent}>
-          <Feather name="book-open" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Select a book first
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
-  const handleShare = async () => {
+  const handleShare = useCallback(async () => {
+    if (!activeBook) return;
     const url = getApiUrl() + "/store/" + activeBook.id;
     try {
       if (Platform.OS === "web") {
@@ -73,31 +47,31 @@ export default function StoreScreen() {
     } catch (e) {
       console.error("Failed to open store URL", e);
     }
-  };
+  }, [activeBook]);
 
-  const handleLongPress = (product: Product) => {
+  const handleLongPress = useCallback((product: Product) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setDeleteTargetId(product.id);
     setShowDeleteConfirm(true);
-  };
+  }, []);
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = useCallback(() => {
     if (deleteTargetId) {
       deleteProduct(deleteTargetId);
     }
     setShowDeleteConfirm(false);
     setDeleteTargetId(null);
-  };
+  }, [deleteTargetId, deleteProduct]);
 
-  const handleCancelDelete = () => {
+  const handleCancelDelete = useCallback(() => {
     setShowDeleteConfirm(false);
     setDeleteTargetId(null);
-  };
+  }, []);
 
-  const handleToggleStock = (product: Product) => {
+  const handleToggleStock = useCallback((product: Product) => {
     Haptics.selectionAsync();
     updateProduct(product.id, { inStock: !product.inStock });
-  };
+  }, [updateProduct]);
 
   const renderProduct = useCallback(
     ({ item }: { item: Product }) => (
@@ -165,8 +139,35 @@ export default function StoreScreen() {
         </View>
       </Pressable>
     ),
-    [theme, t]
+    [theme, t, handleLongPress, handleToggleStock]
   );
+
+  if (!activeBook) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View
+          style={[
+            styles.header,
+            {
+              paddingTop: topPad + 16,
+              borderBottomColor: theme.border,
+              backgroundColor: theme.background,
+            },
+          ]}
+        >
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+            {t("store")}
+          </Text>
+        </View>
+        <View style={styles.emptyContent}>
+          <Feather name="book-open" size={44} color={theme.textSecondary} />
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+            {t("selectBookTransactions")}
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
