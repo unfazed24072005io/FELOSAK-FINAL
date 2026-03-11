@@ -10,7 +10,7 @@ import {
   useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Print from "expo-print";
@@ -31,7 +31,7 @@ interface InvoiceItem {
 }
 
 function genId(): string {
-  return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+  return Date.now().toString() + Math.random().toString(36).substring(2, 11);
 }
 
 export default function CreateInvoiceScreen() {
@@ -69,8 +69,8 @@ export default function CreateInvoiceScreen() {
     [subtotal, taxRate]
   );
 
-  const discountAmount = parseFloat(discount || "0");
-  const grandTotal = subtotal + taxAmount - discountAmount;
+  const discountAmount = useMemo(() => Math.max(0, parseFloat(discount || "0") || 0), [discount]);
+  const grandTotal = useMemo(() => subtotal + taxAmount - discountAmount, [subtotal, taxAmount, discountAmount]);
 
   const invoiceNumber = useMemo(
     () => "INV-" + Date.now().toString().slice(-6),
@@ -149,8 +149,11 @@ export default function CreateInvoiceScreen() {
   }, [
     clientName, clientEmail, clientPhone, clientAddress,
     issueDate, dueDate, items, subtotal, taxRate, taxAmount,
-    discountAmount, grandTotal, notes, invoiceNumber, activeBook, user,
+    discountAmount, grandTotal, notes, invoiceNumber, activeBook, user, t, discount,
   ]);
+
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   const handleGeneratePdf = useCallback(async () => {
     let profileData: any = null;
@@ -158,7 +161,7 @@ export default function CreateInvoiceScreen() {
       try {
         const url = new URL(`/api/books/${activeBook.id}/business-profile`, getApiUrl());
         const resp = await fetch(url.toString(), { credentials: "include" });
-        profileData = await resp.json();
+        if (resp.ok) profileData = await resp.json();
       } catch (e) {}
     }
 
@@ -192,31 +195,31 @@ export default function CreateInvoiceScreen() {
 <body>
 <div class="header">
   <div class="company-info">
-    <h1>${profileData?.businessName || activeBook?.name || "Feloosak"}</h1>
-    ${profileData?.address ? `<p>${profileData.address}</p>` : ""}
-    ${profileData?.city ? `<p>${profileData.city}, ${profileData.country || "Egypt"}</p>` : ""}
-    ${profileData?.phone ? `<p>Tel: ${profileData.phone}</p>` : ""}
-    ${profileData?.email ? `<p>${profileData.email}</p>` : ""}
-    ${profileData?.taxId ? `<p>Tax ID: ${profileData.taxId}</p>` : ""}
+    <h1>${esc(profileData?.businessName || activeBook?.name || "Feloosak")}</h1>
+    ${profileData?.address ? `<p>${esc(profileData.address)}</p>` : ""}
+    ${profileData?.city ? `<p>${esc(profileData.city)}, ${esc(profileData.country || "Egypt")}</p>` : ""}
+    ${profileData?.phone ? `<p>Tel: ${esc(profileData.phone)}</p>` : ""}
+    ${profileData?.email ? `<p>${esc(profileData.email)}</p>` : ""}
+    ${profileData?.taxId ? `<p>Tax ID: ${esc(profileData.taxId)}</p>` : ""}
   </div>
   <div class="invoice-title">
     <h2>INVOICE</h2>
-    <p><strong>${invoiceNumber}</strong></p>
-    <p>Date: ${issueDate}</p>
-    ${dueDate ? `<p>Due: ${dueDate}</p>` : ""}
+    <p><strong>${esc(invoiceNumber)}</strong></p>
+    <p>Date: ${esc(issueDate)}</p>
+    ${dueDate ? `<p>Due: ${esc(dueDate)}</p>` : ""}
   </div>
 </div>
 <div class="client-section">
   <h3>Bill To</h3>
-  <p><strong>${clientName}</strong></p>
-  ${clientAddress ? `<p>${clientAddress}</p>` : ""}
-  ${clientPhone ? `<p>Tel: ${clientPhone}</p>` : ""}
-  ${clientEmail ? `<p>${clientEmail}</p>` : ""}
+  <p><strong>${esc(clientName)}</strong></p>
+  ${clientAddress ? `<p>${esc(clientAddress)}</p>` : ""}
+  ${clientPhone ? `<p>Tel: ${esc(clientPhone)}</p>` : ""}
+  ${clientEmail ? `<p>${esc(clientEmail)}</p>` : ""}
 </div>
 <table>
   <thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
   <tbody>
-    ${items.filter(i => i.name).map(i => `<tr><td>${i.name}</td><td>${i.quantity}</td><td>${formatEGP(i.unitPrice)}</td><td>${formatEGP(i.quantity * i.unitPrice)}</td></tr>`).join("")}
+    ${items.filter(i => i.name).map(i => `<tr><td>${esc(i.name)}</td><td>${i.quantity}</td><td>${formatEGP(i.unitPrice)}</td><td>${formatEGP(i.quantity * i.unitPrice)}</td></tr>`).join("")}
   </tbody>
 </table>
 <div class="totals">
@@ -225,10 +228,10 @@ export default function CreateInvoiceScreen() {
   ${discountAmount > 0 ? `<div class="row"><span>Discount</span><span>-${formatEGP(discountAmount)}</span></div>` : ""}
   <div class="row grand"><span>Total</span><span>${formatEGP(grandTotal)}</span></div>
 </div>
-${notes ? `<div class="footer"><p><strong>Notes:</strong> ${notes}</p></div>` : ""}
-${profileData?.bankName ? `<div class="footer"><p><strong>Bank:</strong> ${profileData.bankName} | Acc: ${profileData.bankAccount || "N/A"} ${profileData.bankIban ? "| IBAN: " + profileData.bankIban : ""}</p></div>` : ""}
-${profileData?.termsAndConditions ? `<div class="footer"><p><strong>Terms:</strong> ${profileData.termsAndConditions}</p></div>` : ""}
-${profileData?.footerNote ? `<div class="footer"><p>${profileData.footerNote}</p></div>` : ""}
+${notes ? `<div class="footer"><p><strong>Notes:</strong> ${esc(notes)}</p></div>` : ""}
+${profileData?.bankName ? `<div class="footer"><p><strong>Bank:</strong> ${esc(profileData.bankName)} | Acc: ${esc(profileData.bankAccount || "N/A")} ${profileData.bankIban ? "| IBAN: " + esc(profileData.bankIban) : ""}</p></div>` : ""}
+${profileData?.termsAndConditions ? `<div class="footer"><p><strong>Terms:</strong> ${esc(profileData.termsAndConditions)}</p></div>` : ""}
+${profileData?.footerNote ? `<div class="footer"><p>${esc(profileData.footerNote)}</p></div>` : ""}
 </body></html>`;
 
     try {

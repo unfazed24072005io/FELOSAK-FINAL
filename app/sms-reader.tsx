@@ -227,7 +227,7 @@ export default function SMSReaderScreen() {
             {t("detectedTransactions")}
           </Text>
 
-          <View style={styles.resultRow}>
+          <View style={[styles.resultRow, { borderBottomColor: theme.border }]}>
             <Text style={[styles.resultLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
               {t("smsAmount")}
             </Text>
@@ -237,7 +237,7 @@ export default function SMSReaderScreen() {
           </View>
 
           {parsed.sender ? (
-            <View style={styles.resultRow}>
+            <View style={[styles.resultRow, { borderBottomColor: theme.border }]}>
               <Text style={[styles.resultLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
                 {t("smsSender")}
               </Text>
@@ -247,7 +247,7 @@ export default function SMSReaderScreen() {
             </View>
           ) : null}
 
-          <View style={styles.resultRow}>
+          <View style={[styles.resultRow, { borderBottomColor: theme.border }]}>
             <Text style={[styles.resultLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
               {t("smsType")}
             </Text>
@@ -367,7 +367,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E2E8F022",
   },
   resultLabel: { fontSize: 13 },
   resultValue: { fontSize: 15 },

@@ -52,7 +52,7 @@ export default function BusinessProfileScreen() {
     if (activeBook?.isCloud && user) {
       const url = new URL(`/api/books/${activeBook.id}/business-profile`, getApiUrl());
       fetch(url.toString(), { credentials: "include" })
-        .then((r) => r.json())
+        .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (data) {
             setBusinessName(data.businessName || "");

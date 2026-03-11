@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useState } from "react";
+import { useFocusEffect } from "expo-router";
 import {
   FlatList,
   Modal,
@@ -71,9 +72,11 @@ export default function InvoicesScreen() {
     setLoading(false);
   }, [activeBook, user]);
 
-  useEffect(() => {
-    loadInvoices();
-  }, [loadInvoices]);
+  useFocusEffect(
+    useCallback(() => {
+      loadInvoices();
+    }, [loadInvoices])
+  );
 
   const handleStatusChange = useCallback(
     async (inv: InvoiceData, newStatus: string) => {
