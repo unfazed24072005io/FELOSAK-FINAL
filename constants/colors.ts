@@ -1,13 +1,13 @@
-const DARK_BG = "#0A1F15";
-const CARD_BG = "#122B1C";
-const CARD_SURFACE = "#1A3826";
-const GOLD = "#C9A84C";
-const GOLD_LIGHT = "#E8C56A";
-const GREEN_INCOME = "#2ECC71";
-const RED_EXPENSE = "#E74C3C";
-const TEXT_PRIMARY = "#F0EDE6";
-const TEXT_SECONDARY = "#8FA898";
-const BORDER = "#1F3D2B";
+const DARK_BG = "#0B1426";
+const CARD_BG = "#111D33";
+const CARD_SURFACE = "#182840";
+const ACCENT = "#3B82F6";
+const ACCENT_LIGHT = "#60A5FA";
+const GREEN_INCOME = "#10B981";
+const RED_EXPENSE = "#EF4444";
+const TEXT_PRIMARY = "#F1F5F9";
+const TEXT_SECONDARY = "#94A3B8";
+const BORDER = "#1E293B";
 
 const Colors = {
   dark: {
@@ -17,26 +17,26 @@ const Colors = {
     border: BORDER,
     text: TEXT_PRIMARY,
     textSecondary: TEXT_SECONDARY,
-    tint: GOLD,
-    tintLight: GOLD_LIGHT,
+    tint: ACCENT,
+    tintLight: ACCENT_LIGHT,
     income: GREEN_INCOME,
     expense: RED_EXPENSE,
     tabIconDefault: TEXT_SECONDARY,
-    tabIconSelected: GOLD,
+    tabIconSelected: ACCENT,
   },
   light: {
-    background: "#F7F5F0",
+    background: "#F8FAFC",
     card: "#FFFFFF",
-    surface: "#F0EDE6",
-    border: "#E0D9CE",
-    text: "#1A2B1F",
-    textSecondary: "#6B7C72",
-    tint: "#0D6B3E",
-    tintLight: "#1A8A50",
-    income: "#1A8A50",
-    expense: "#C0392B",
-    tabIconDefault: "#6B7C72",
-    tabIconSelected: "#0D6B3E",
+    surface: "#F1F5F9",
+    border: "#E2E8F0",
+    text: "#0F172A",
+    textSecondary: "#64748B",
+    tint: "#2563EB",
+    tintLight: "#3B82F6",
+    income: "#059669",
+    expense: "#DC2626",
+    tabIconDefault: "#94A3B8",
+    tabIconSelected: "#2563EB",
   },
 };
 

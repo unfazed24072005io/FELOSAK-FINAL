@@ -418,6 +418,17 @@ function DebtCard({
     }
   };
 
+  const handleEmail = async () => {
+    const message = getReminderMessage();
+    const subject = t("emailSubject", { amount: formatEGP(debt.amount) });
+    const url = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+    try {
+      await Linking.openURL(url);
+    } catch (e) {
+      console.error("Failed to open email", e);
+    }
+  };
+
   return (
     <Pressable
       onPress={onEdit}
@@ -504,32 +515,49 @@ function DebtCard({
             </Text>
           ) : null}
         </View>
-        {!debt.settled && isOwedToMe && debt.phone ? (
+        {!debt.settled && isOwedToMe ? (
           <View style={styles.reminderRow}>
+            {debt.phone ? (
+              <>
+                <Pressable
+                  testID="reminder-whatsapp"
+                  onPress={handleWhatsApp}
+                  style={({ pressed }) => [
+                    styles.reminderBtn,
+                    { backgroundColor: "#25D366" + "22", opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Feather name="message-circle" size={12} color="#25D366" />
+                  <Text style={[styles.reminderBtnText, { color: "#25D366", fontFamily: "Inter_500Medium" }]}>
+                    {t("whatsapp")}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  testID="reminder-sms"
+                  onPress={handleSMS}
+                  style={({ pressed }) => [
+                    styles.reminderBtn,
+                    { backgroundColor: theme.tint + "22", opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Feather name="smartphone" size={12} color={theme.tint} />
+                  <Text style={[styles.reminderBtnText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
+                    {t("sms")}
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
             <Pressable
-              testID="reminder-whatsapp"
-              onPress={handleWhatsApp}
+              testID="reminder-email"
+              onPress={handleEmail}
               style={({ pressed }) => [
                 styles.reminderBtn,
-                { backgroundColor: "#25D366" + "22", opacity: pressed ? 0.7 : 1 },
+                { backgroundColor: "#F59E0B" + "22", opacity: pressed ? 0.7 : 1 },
               ]}
             >
-              <Feather name="message-circle" size={12} color="#25D366" />
-              <Text style={[styles.reminderBtnText, { color: "#25D366", fontFamily: "Inter_500Medium" }]}>
-                {t("whatsapp")}
-              </Text>
-            </Pressable>
-            <Pressable
-              testID="reminder-sms"
-              onPress={handleSMS}
-              style={({ pressed }) => [
-                styles.reminderBtn,
-                { backgroundColor: theme.tint + "22", opacity: pressed ? 0.7 : 1 },
-              ]}
-            >
-              <Feather name="smartphone" size={12} color={theme.tint} />
-              <Text style={[styles.reminderBtnText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
-                {t("sms")}
+              <Feather name="mail" size={12} color="#F59E0B" />
+              <Text style={[styles.reminderBtnText, { color: "#F59E0B", fontFamily: "Inter_500Medium" }]}>
+                {t("email")}
               </Text>
             </Pressable>
           </View>

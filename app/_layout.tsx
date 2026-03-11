@@ -108,6 +108,40 @@ function RootLayoutNav() {
           headerShown: false,
         }}
       />
+      <Stack.Screen
+        name="sms-reader"
+        options={{
+          presentation: "formSheet",
+          headerShown: false,
+          sheetAllowedDetents: [0.85, 1.0],
+          sheetGrabberVisible: true,
+        }}
+      />
+      <Stack.Screen
+        name="business-profile"
+        options={{
+          presentation: "formSheet",
+          headerShown: false,
+          sheetAllowedDetents: [0.92, 1.0],
+          sheetGrabberVisible: true,
+        }}
+      />
+      <Stack.Screen
+        name="create-invoice"
+        options={{
+          presentation: "formSheet",
+          headerShown: false,
+          sheetAllowedDetents: [0.95, 1.0],
+          sheetGrabberVisible: true,
+        }}
+      />
+      <Stack.Screen
+        name="invoices"
+        options={{
+          presentation: "modal",
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 }

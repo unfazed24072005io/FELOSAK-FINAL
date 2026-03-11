@@ -100,6 +100,58 @@ export const products = pgTable("products", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const businessProfiles = pgTable("business_profiles", {
+  id: varchar("id", { length: 36 })
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  bookId: varchar("book_id", { length: 36 })
+    .notNull()
+    .references(() => books.id, { onDelete: "cascade" }),
+  businessName: text("business_name").notNull(),
+  logo: text("logo").default(""),
+  address: text("address").default(""),
+  city: text("city").default(""),
+  country: text("country").default("Egypt"),
+  phone: text("phone").default(""),
+  email: text("email").default(""),
+  website: text("website").default(""),
+  taxId: text("tax_id").default(""),
+  registrationNo: text("registration_no").default(""),
+  bankName: text("bank_name").default(""),
+  bankAccount: text("bank_account").default(""),
+  bankIban: text("bank_iban").default(""),
+  termsAndConditions: text("terms_and_conditions").default(""),
+  footerNote: text("footer_note").default(""),
+  createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const invoices = pgTable("invoices", {
+  id: varchar("id", { length: 36 })
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  bookId: varchar("book_id", { length: 36 })
+    .notNull()
+    .references(() => books.id, { onDelete: "cascade" }),
+  invoiceNumber: text("invoice_number").notNull(),
+  clientName: text("client_name").notNull(),
+  clientEmail: text("client_email").default(""),
+  clientPhone: text("client_phone").default(""),
+  clientAddress: text("client_address").default(""),
+  issueDate: text("issue_date").notNull(),
+  dueDate: text("due_date").default(""),
+  items: text("items").default("[]"),
+  subtotal: numeric("subtotal", { precision: 15, scale: 2 }).default("0"),
+  taxRate: numeric("tax_rate", { precision: 5, scale: 2 }).default("0"),
+  taxAmount: numeric("tax_amount", { precision: 15, scale: 2 }).default("0"),
+  discount: numeric("discount", { precision: 15, scale: 2 }).default("0"),
+  total: numeric("total", { precision: 15, scale: 2 }).notNull(),
+  notes: text("notes").default(""),
+  status: text("status").default("draft"),
+  createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -147,3 +199,5 @@ export type BookMember = typeof bookMembers.$inferSelect;
 export type CloudTransaction = typeof cloudTransactions.$inferSelect;
 export type CloudDebt = typeof cloudDebts.$inferSelect;
 export type Product = typeof products.$inferSelect;
+export type BusinessProfile = typeof businessProfiles.$inferSelect;
+export type Invoice = typeof invoices.$inferSelect;

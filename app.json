@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Misr Hesabat : Cash Book for business personal finance",
-    "slug": "misrhesabatcashbookforbusinesspersonalfinance",
-    "version": "1.0.0",
+    "name": "Feloosak: Your Cash Book",
+    "slug": "feloosak-cash-book",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "misrhesabatcashbookforbusinesspersonalfinance",
+    "scheme": "feloosak",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {

@@ -407,6 +407,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== BUSINESS PROFILES =====
+  app.get("/api/books/:id/business-profile", requireAuth, requireBookAccess, async (req, res) => {
+    try {
+      const profile = await storage.getBusinessProfile(param(req, "id"));
+      res.json(profile || null);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to fetch business profile" });
+    }
+  });
+
+  app.put("/api/books/:id/business-profile", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
+    try {
+      const { businessName, logo, address, city, country, phone, email, website, taxId, registrationNo, bankName, bankAccount, bankIban, termsAndConditions, footerNote } = req.body;
+      if (!businessName) {
+        return res.status(400).json({ message: "Business name is required" });
+      }
+      const logoData = typeof logo === "string" ? logo.substring(0, 5 * 1024 * 1024) : "";
+      const profile = await storage.upsertBusinessProfile(param(req, "id"), {
+        businessName,
+        logo: logoData,
+        address: address || "",
+        city: city || "",
+        country: country || "Egypt",
+        phone: phone || "",
+        email: email || "",
+        website: website || "",
+        taxId: taxId || "",
+        registrationNo: registrationNo || "",
+        bankName: bankName || "",
+        bankAccount: bankAccount || "",
+        bankIban: bankIban || "",
+        termsAndConditions: termsAndConditions || "",
+        footerNote: footerNote || "",
+      }, req.session.userId!);
+      res.json(profile);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to save business profile" });
+    }
+  });
+
+  // ===== INVOICES =====
+  app.get("/api/books/:id/invoices", requireAuth, requireBookAccess, async (req, res) => {
+    try {
+      const invs = await storage.getBookInvoices(param(req, "id"));
+      res.json(invs);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  app.post("/api/books/:id/invoices", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
+    try {
+      const { invoiceNumber, clientName, clientEmail, clientPhone, clientAddress, issueDate, dueDate, items, subtotal, taxRate, taxAmount, discount, total, notes, status } = req.body;
+      if (!invoiceNumber || !clientName || !issueDate || total === undefined) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      const inv = await storage.addInvoice(param(req, "id"), {
+        invoiceNumber,
+        clientName,
+        clientEmail: clientEmail || "",
+        clientPhone: clientPhone || "",
+        clientAddress: clientAddress || "",
+        issueDate,
+        dueDate: dueDate || "",
+        items: typeof items === "string" ? items : JSON.stringify(items || []),
+        subtotal: String(subtotal || 0),
+        taxRate: String(taxRate || 0),
+        taxAmount: String(taxAmount || 0),
+        discount: String(discount || 0),
+        total: String(total),
+        notes: notes || "",
+        status: status || "draft",
+      }, req.session.userId!);
+      res.json(inv);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to create invoice" });
+    }
+  });
+
+  app.put("/api/books/:id/invoices/:invoiceId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
+    try {
+      const { invoiceNumber, clientName, clientEmail, clientPhone, clientAddress, issueDate, dueDate, items, subtotal, taxRate, taxAmount, discount, total, notes, status } = req.body;
+      const updateData: any = {};
+      if (invoiceNumber !== undefined) updateData.invoiceNumber = invoiceNumber;
+      if (clientName !== undefined) updateData.clientName = clientName;
+      if (clientEmail !== undefined) updateData.clientEmail = clientEmail;
+      if (clientPhone !== undefined) updateData.clientPhone = clientPhone;
+      if (clientAddress !== undefined) updateData.clientAddress = clientAddress;
+      if (issueDate !== undefined) updateData.issueDate = issueDate;
+      if (dueDate !== undefined) updateData.dueDate = dueDate;
+      if (items !== undefined) updateData.items = typeof items === "string" ? items : JSON.stringify(items);
+      if (subtotal !== undefined) updateData.subtotal = String(subtotal);
+      if (taxRate !== undefined) updateData.taxRate = String(taxRate);
+      if (taxAmount !== undefined) updateData.taxAmount = String(taxAmount);
+      if (discount !== undefined) updateData.discount = String(discount);
+      if (total !== undefined) updateData.total = String(total);
+      if (notes !== undefined) updateData.notes = notes;
+      if (status !== undefined) updateData.status = status;
+      const inv = await storage.updateInvoice(param(req, "invoiceId"), param(req, "id"), updateData);
+      res.json(inv);
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to update invoice" });
+    }
+  });
+
+  app.delete("/api/books/:id/invoices/:invoiceId", requireAuth, requireBookAccess, requireBookEditor, async (req, res) => {
+    try {
+      await storage.deleteInvoice(param(req, "invoiceId"), param(req, "id"));
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: "Failed to delete invoice" });
+    }
+  });
+
   // ===== PUBLIC STOREFRONT =====
   app.get("/api/store/:bookId", async (req, res) => {
     try {

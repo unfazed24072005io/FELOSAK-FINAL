@@ -7,6 +7,8 @@ import {
   cloudTransactions,
   cloudDebts,
   products,
+  businessProfiles,
+  invoices,
   type User,
   type InsertUser,
   type Book,
@@ -14,6 +16,8 @@ import {
   type CloudTransaction,
   type CloudDebt,
   type Product,
+  type BusinessProfile,
+  type Invoice,
 } from "@shared/schema";
 import { scryptSync, randomBytes, timingSafeEqual } from "crypto";
 
@@ -252,5 +256,69 @@ export const storage = {
       .where(and(eq(products.bookId, bookId), eq(products.inStock, true)))
       .orderBy(products.createdAt);
     return { bookName: book.name, products: prods };
+  },
+
+  async getBusinessProfile(bookId: string): Promise<BusinessProfile | undefined> {
+    const [profile] = await db
+      .select()
+      .from(businessProfiles)
+      .where(eq(businessProfiles.bookId, bookId));
+    return profile;
+  },
+
+  async upsertBusinessProfile(bookId: string, data: any, userId: string): Promise<BusinessProfile> {
+    const existing = await storage.getBusinessProfile(bookId);
+    if (existing) {
+      const [updated] = await db
+        .update(businessProfiles)
+        .set(data)
+        .where(eq(businessProfiles.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db
+      .insert(businessProfiles)
+      .values({ ...data, bookId, createdBy: userId })
+      .returning();
+    return created;
+  },
+
+  async getBookInvoices(bookId: string): Promise<Invoice[]> {
+    return db
+      .select()
+      .from(invoices)
+      .where(eq(invoices.bookId, bookId))
+      .orderBy(invoices.createdAt);
+  },
+
+  async getInvoice(invoiceId: string, bookId: string): Promise<Invoice | undefined> {
+    const [inv] = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.bookId, bookId)));
+    return inv;
+  },
+
+  async addInvoice(bookId: string, data: any, userId: string): Promise<Invoice> {
+    const [inv] = await db
+      .insert(invoices)
+      .values({ ...data, bookId, createdBy: userId })
+      .returning();
+    return inv;
+  },
+
+  async updateInvoice(invoiceId: string, bookId: string, data: any): Promise<Invoice | undefined> {
+    const [inv] = await db
+      .update(invoices)
+      .set(data)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.bookId, bookId)))
+      .returning();
+    return inv;
+  },
+
+  async deleteInvoice(invoiceId: string, bookId: string): Promise<void> {
+    await db
+      .delete(invoices)
+      .where(and(eq(invoices.id, invoiceId), eq(invoices.bookId, bookId)));
   },
 };

@@ -592,6 +592,43 @@ function BookDashboard() {
               </Pressable>
             </View>
 
+            <View style={styles.quickActions}>
+              <Pressable
+                onPress={() => router.push("/sms-reader")}
+                style={({ pressed }) => [styles.quickBtn, { backgroundColor: theme.card, borderColor: theme.border, opacity: pressed ? 0.8 : 1 }]}
+                testID="quick-sms-reader"
+              >
+                <View style={[styles.quickBtnIcon, { backgroundColor: "#8B5CF6" + "18" }]}>
+                  <Feather name="smartphone" size={16} color="#8B5CF6" />
+                </View>
+                <Text style={[styles.quickBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>{t("smsReader")}</Text>
+              </Pressable>
+              {activeBook?.isCloud ? (
+                <>
+                  <Pressable
+                    onPress={() => router.push("/invoices")}
+                    style={({ pressed }) => [styles.quickBtn, { backgroundColor: theme.card, borderColor: theme.border, opacity: pressed ? 0.8 : 1 }]}
+                    testID="quick-invoices"
+                  >
+                    <View style={[styles.quickBtnIcon, { backgroundColor: theme.tint + "18" }]}>
+                      <Feather name="file-text" size={16} color={theme.tint} />
+                    </View>
+                    <Text style={[styles.quickBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>{t("invoices")}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push("/business-profile")}
+                    style={({ pressed }) => [styles.quickBtn, { backgroundColor: theme.card, borderColor: theme.border, opacity: pressed ? 0.8 : 1 }]}
+                    testID="quick-business-profile"
+                  >
+                    <View style={[styles.quickBtnIcon, { backgroundColor: theme.income + "18" }]}>
+                      <Feather name="briefcase" size={16} color={theme.income} />
+                    </View>
+                    <Text style={[styles.quickBtnText, { color: theme.text, fontFamily: "Inter_500Medium" }]}>{t("businessProfile")}</Text>
+                  </Pressable>
+                </>
+              ) : null}
+            </View>
+
             <Text style={[styles.entryCount, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
               {t("showingEntries", { count: filtered.length, label: filtered.length === 1 ? t("entry") : t("entries") })}
             </Text>
@@ -1062,6 +1099,30 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   viewReportsText: { fontSize: 14, letterSpacing: 0.5 },
+
+  quickActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 16,
+  },
+  quickBtn: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    gap: 6,
+  },
+  quickBtnIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickBtnText: { fontSize: 11 },
 
   entryCount: {
     textAlign: "center",
