@@ -166,9 +166,33 @@ A fully functional cash book application built for Egyptian SMEs (Small & Medium
 - Language preference persisted to AsyncStorage
 - RTL layout support for Arabic
 
+### Book Settings Screen
+- Rename book with inline text input
+- General Book Settings: Entry Field Settings, Edit Data Operator Role, Book Activity
+- Members list with role badges (Primary Admin, Admin, Employee)
+- Roles & Permissions modal (tabbed: Primary Admin/Admin/Employee with permission details)
+- Delete book with type-to-confirm flow (owner-only)
+
+### Sort Books
+- Sort modal in books list header with 5 options: Last Updated, Name A-Z, Balance High/Low, Last Created
+- APPLY button to confirm sort selection
+
+### Business Team Management
+- Role hierarchy visualization (Primary Admin → Admin → Employee)
+- Add member via email/username with role assignment
+- Members list with role management
+- Roles & Permissions detail modal
+
+### Subscription Plans Screen
+- Monthly/Yearly billing toggle with savings badge
+- Plan tiers: Starter, Essentials (locked), Professional, Business, Enterprise
+- Enterprise tier with contact mailto (support@feloosak.com)
+- EGP pricing throughout
+- Cancel notice with subscription management link
+
 ### Settings (Organized Sections)
 - Profile card for signed-in users (name, username, edit link)
-- Book Settings section (cloud books): Business Team, Business Settings
+- Book Settings section (cloud books): Business Team, Business Settings, Subscription
 - General Settings: Security (PIN lock), Language (Arabic/English), Your Profile, About
 - Sign Out with confirmation
 - Lock App Now shortcut when PIN is enabled
@@ -197,12 +221,15 @@ app/
   account.tsx          # Account info + sign out (modal)
   create-book.tsx      # Create new book (form sheet)
   book-members.tsx     # Member management for cloud books (modal)
+  book-settings.tsx    # Book settings: rename, roles, delete (modal)
+  business-team.tsx    # Business team management with role hierarchy (modal)
+  subscription.tsx     # Subscription plans with billing toggle (modal)
 context/
   AuthContext.tsx       # Auth state (login, register, logout, current user)
   AppContext.tsx        # Multi-book state, active book, transactions, debts, products, PIN
   LanguageContext.tsx   # i18n state (language, t() function, isRTL)
 i18n/
-  translations.ts      # English and Arabic translation strings (550+ keys)
+  translations.ts      # English and Arabic translation strings (600+ keys)
 utils/
   format.ts            # EGP formatting, date validation, Arabic numeral normalization
 components/

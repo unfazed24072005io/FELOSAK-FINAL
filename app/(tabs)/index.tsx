@@ -31,6 +31,8 @@ export default function OverviewScreen() {
   return <BooksListView />;
 }
 
+type SortOption = "lastUpdated" | "nameAtoZ" | "balanceHighLow" | "balanceLowHigh" | "lastCreated";
+
 function BooksListView() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
@@ -43,9 +45,35 @@ function BooksListView() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [bookToDelete, setBookToDelete] = useState<CashBook | null>(null);
   const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
+  const [showSortModal, setShowSortModal] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>("lastUpdated");
+  const [pendingSort, setPendingSort] = useState<SortOption>("lastUpdated");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  const sortedBooks = useMemo(() => {
+    const sorted = [...books];
+    switch (sortBy) {
+      case "nameAtoZ":
+        sorted.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case "balanceHighLow":
+        sorted.sort((a, b) => ((b as any).balance ?? 0) - ((a as any).balance ?? 0));
+        break;
+      case "balanceLowHigh":
+        sorted.sort((a, b) => ((a as any).balance ?? 0) - ((b as any).balance ?? 0));
+        break;
+      case "lastCreated":
+        sorted.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        break;
+      case "lastUpdated":
+      default:
+        sorted.sort((a, b) => ((b as any).updatedAt || b.createdAt || 0) - ((a as any).updatedAt || a.createdAt || 0));
+        break;
+    }
+    return sorted;
+  }, [books, sortBy]);
 
   const handleDeleteBook = useCallback(
     (book: CashBook) => {
@@ -163,6 +191,23 @@ function BooksListView() {
           </View>
         )}
 
+        {books.length > 0 && (
+          <View style={styles.sortRow}>
+            <Text style={[styles.bookCountText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {books.length} {books.length === 1 ? t("entry") : t("books")}
+            </Text>
+            <Pressable
+              onPress={() => { setPendingSort(sortBy); setShowSortModal(true); }}
+              style={({ pressed }) => [styles.sortBtn, { borderColor: theme.border, opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Feather name="sliders" size={14} color={theme.textSecondary} />
+              <Text style={[styles.sortBtnText, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                {t("sortBooksBy")}
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
         {books.length === 0 ? (
           <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Feather name="book-open" size={32} color={theme.textSecondary} />
@@ -172,7 +217,7 @@ function BooksListView() {
           </View>
         ) : (
           <View style={styles.booksGrid}>
-            {books.map((book) => (
+            {sortedBooks.map((book) => (
               <BookCard
                 key={book.id}
                 book={book}
@@ -276,6 +321,60 @@ function BooksListView() {
             </View>
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={showSortModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSortModal(false)}
+      >
+        <Pressable style={styles.sortModalOverlay} onPress={() => setShowSortModal(false)}>
+          <Pressable style={[styles.sortModalContent, { backgroundColor: theme.card }]} onPress={() => {}}>
+            <View style={styles.sortModalHeader}>
+              <Text style={[styles.sortModalTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                {t("sortBooksBy")}
+              </Text>
+              <Pressable onPress={() => setShowSortModal(false)} hitSlop={8}>
+                <Feather name="x" size={20} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            {([
+              { key: "lastUpdated" as SortOption, label: t("lastUpdated"), icon: "clock" },
+              { key: "nameAtoZ" as SortOption, label: t("nameAtoZ"), icon: "type" },
+              { key: "balanceHighLow" as SortOption, label: t("netBalanceHighLow"), icon: "trending-up" },
+              { key: "balanceLowHigh" as SortOption, label: t("netBalanceLowHigh"), icon: "trending-down" },
+              { key: "lastCreated" as SortOption, label: t("lastCreated"), icon: "calendar" },
+            ]).map((opt) => (
+              <Pressable
+                key={opt.key}
+                onPress={() => setPendingSort(opt.key)}
+                style={({ pressed }) => [
+                  styles.sortOption,
+                  {
+                    backgroundColor: pendingSort === opt.key ? theme.tint + "12" : "transparent",
+                    borderColor: pendingSort === opt.key ? theme.tint : theme.border,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <View style={[styles.sortOptionRadio, { borderColor: pendingSort === opt.key ? theme.tint : theme.border }]}>
+                  {pendingSort === opt.key && <View style={[styles.sortOptionRadioInner, { backgroundColor: theme.tint }]} />}
+                </View>
+                <Feather name={opt.icon as any} size={16} color={pendingSort === opt.key ? theme.tint : theme.textSecondary} />
+                <Text style={[styles.sortOptionText, { color: pendingSort === opt.key ? theme.tint : theme.text, fontFamily: pendingSort === opt.key ? "Inter_600SemiBold" : "Inter_400Regular" }]}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              onPress={() => { setSortBy(pendingSort); setShowSortModal(false); Haptics.selectionAsync(); }}
+              style={({ pressed }) => [styles.sortApplyBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.85 : 1 }]}
+            >
+              <Text style={[styles.sortApplyBtnText, { fontFamily: "Inter_700Bold" }]}>{t("apply")}</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -724,7 +823,7 @@ function BookDashboard() {
               theme={theme}
               onPress={() => {
                 setMenuVisible(false);
-                router.push("/settings");
+                router.push("/book-settings");
               }}
             />
             <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
@@ -975,6 +1074,68 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   userText: { fontSize: 13 },
+  sortRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  bookCountText: { fontSize: 13 },
+  sortBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  sortBtnText: { fontSize: 12 },
+  sortModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  sortModalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 34,
+  },
+  sortModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  sortModalTitle: { fontSize: 17 },
+  sortOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  sortOptionRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sortOptionRadioInner: { width: 10, height: 10, borderRadius: 5 },
+  sortOptionText: { fontSize: 15, flex: 1 },
+  sortApplyBtn: {
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  sortApplyBtnText: { color: "#FFF", fontSize: 15 },
   booksGrid: { gap: 12 },
   bookCard: {
     borderRadius: 20,

@@ -155,7 +155,7 @@ export default function SettingsScreen() {
                 theme={theme}
                 onPress={() => {
                   if (activeBook) {
-                    router.push({ pathname: "/book-members", params: { bookId: activeBook.id } });
+                    router.push({ pathname: "/business-team", params: { bookId: activeBook.id } });
                   }
                 }}
               />
@@ -290,6 +290,14 @@ export default function SettingsScreen() {
                 setLanguage(next as any);
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               }}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
+              icon="credit-card"
+              title={t("subscription")}
+              subtitle={t("managePlan")}
+              theme={theme}
+              onPress={() => router.push("/subscription")}
             />
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <SettingsRow
