@@ -6,7 +6,6 @@ workflows:
     environment:
       node: 18
       npm: 9
-      android: 33
     cache:
       cache_paths:
         - node_modules
@@ -25,10 +24,6 @@ workflows:
       - name: Install Expo SDK dependencies
         script: |
           npx expo install --fix
-      
-      - name: Install Android SDK components
-        script: |
-          echo "y" | sdkmanager "platforms;android-33" "build-tools;33.0.0" "platform-tools" "tools"
       
       - name: Setup Android project
         script: |
