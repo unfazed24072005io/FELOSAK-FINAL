@@ -1,38 +1,102 @@
 workflows:
-  android-apk-local:
-    name: Android APK Local Build
+  android-apk:
+    name: Android APK Build
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
       node: 18
       npm: 9
+      android: 33
+    cache:
+      cache_paths:
+        - node_modules
+        - ~/.npm
+        - ~/.gradle/caches
+        - ~/.gradle/wrapper
     scripts:
       - name: Install dependencies
         script: |
           npm install
       
-      - name: Install Expo
+      - name: Install Expo CLI
         script: |
           npm install -g expo-cli
       
-      - name: Prebuild for Android
+      - name: Install Expo SDK dependencies
+        script: |
+          npx expo install --fix
+      
+      - name: Install Android SDK components
+        script: |
+          echo "y" | sdkmanager "platforms;android-33" "build-tools;33.0.0" "platform-tools" "tools"
+      
+      - name: Setup Android project
         script: |
           npx expo prebuild --platform android --clean
       
-      - name: Setup Android SDK
+      - name: Create keystore for signing
         script: |
-          echo "y" | sdkmanager "platforms;android-33" "build-tools;33.0.0"
+          if [ ! -f "android/app/my-release-key.keystore" ]; then
+            keytool -genkey -v -keystore android/app/my-release-key.keystore -alias my-key-alias -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=, OU=, O=, L=, S=, C="
+          fi
+      
+      - name: Create signing configuration
+        script: |
+          cat > android/keystore.properties << EOF
+          storeFile=my-release-key.keystore
+          storePassword=android
+          keyAlias=my-key-alias
+          keyPassword=android
+          EOF
+      
+      - name: Update build.gradle with signing config
+        script: |
+          if ! grep -q "keystore.properties" android/app/build.gradle; then
+            sed -i '1i\
+          def keystorePropertiesFile = rootProject.file("keystore.properties")\
+          def keystoreProperties = new Properties()\
+          keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\
+          ' android/app/build.gradle
+            
+            sed -i '/signingConfigs {/a\
+                release {\
+                    keyAlias keystoreProperties["keyAlias"]\
+                    keyPassword keystoreProperties["keyPassword"]\
+                    storeFile file(keystoreProperties["storeFile"])\
+                    storePassword keystoreProperties["storePassword"]\
+                }\
+          ' android/app/build.gradle
+          fi
       
       - name: Build APK
         script: |
           cd android
+          chmod +x gradlew
           ./gradlew assembleRelease
           cd ..
       
-      - name: Copy APK
+      - name: Verify APK creation
         script: |
-          cp android/app/build/outputs/apk/release/app-release.apk ./app-release.apk
-    
+          if [ -f "android/app/build/outputs/apk/release/app-release.apk" ]; then
+            echo "APK built successfully!"
+            ls -la android/app/build/outputs/apk/release/
+          else
+            echo "APK not found!"
+            exit 1
+          fi
+      
+      - name: Rename APK
+        script: |
+          cp android/app/build/outputs/apk/release/app-release.apk ./FELOSAAK-APP.apk
+      
     artifacts:
-      - app-release.apk
+      - FELOSAAK-APP.apk
       - android/app/build/outputs/apk/release/*.apk
+    
+    publishing:
+      email:
+        recipients:
+          - your-email@example.com
+        notify:
+          success: true
+          failure: true
