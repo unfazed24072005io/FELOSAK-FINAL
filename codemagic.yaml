@@ -5,6 +5,11 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       node: 18
+      # Add the EXPO_TOKEN to your environment variables in Codemagic UI
+      # Go to: Team > Environment variables > Add new variable
+      # Name: EXPO_TOKEN
+      # Value: (paste your token from Expo dashboard)
+      # Group: Expo
     scripts:
       - name: npm install
         script: npm install
@@ -13,8 +18,7 @@ workflows:
         script: npm install -g eas-cli
       
       - name: Build APK
-        script: |
-          eas build --platform android --profile preview --local --non-interactive --output=./app.apk
+        script: eas build --platform android --profile preview --local --non-interactive --output=./app.apk
       
     artifacts:
       - "app.apk"
