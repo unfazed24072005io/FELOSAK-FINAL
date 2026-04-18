@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 import { useApp, Debt } from "@/context/AppContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
@@ -60,6 +62,25 @@ export default function DebtorsScreen() {
         .reduce((sum, d) => sum + d.amount, 0),
     [debts]
   );
+
+  const countOwedToMe = useMemo(
+    () => debts.filter((d) => d.direction === "owed_to_me" && !d.settled).length,
+    [debts]
+  );
+
+  const countIOwe = useMemo(
+    () => debts.filter((d) => d.direction === "i_owe" && !d.settled).length,
+    [debts]
+  );
+
+  // Dynamic heading based on active tab
+  const dynamicHeading = useMemo(() => {
+    if (activeTab === "owed_to_me") {
+      return "Cash In";
+    } else {
+      return "Cash Out";
+    }
+  }, [activeTab]);
 
   const handleSettle = useCallback(
     (debt: Debt) => {
@@ -123,23 +144,23 @@ export default function DebtorsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Header with Dynamic Heading */}
       <View
         style={[
-          styles.header,
+          styles.headerWhite,
           {
-            paddingTop: topPad + 16,
-            borderBottomColor: theme.border,
-            backgroundColor: theme.background,
+            marginTop: 16,
+            backgroundColor: "#FFFFFF",
           },
         ]}
       >
         <Text
           style={[
-            styles.title,
-            { color: theme.text, fontFamily: "Inter_700Bold" },
+            styles.titleBlack,
+            { fontFamily: "Inter_700Bold", color: "#000000" },
           ]}
         >
-          {t("arAp")}
+          {dynamicHeading}
         </Text>
         <Pressable
           onPress={() => {
@@ -147,91 +168,126 @@ export default function DebtorsScreen() {
             router.push("/add-debt");
           }}
           style={({ pressed }) => [
-            styles.addBtn,
-            { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 },
+            styles.addBtnBlue,
+            { opacity: pressed ? 0.8 : 1 },
           ]}
         >
-          <Feather name="plus" size={18} color="#FFF" />
+          <Feather name="plus" size={20} color="#FFFFFF" />
         </Pressable>
       </View>
 
-      <View style={[styles.summaryRow, { paddingHorizontal: 20, paddingVertical: 14 }]}>
+      {/* Summary Cards with VERY SOFT Gradients */}
+      <View style={styles.summaryContainer}>
+        {/* Owed To Me Card - Very Soft Green Gradient */}
         <Pressable
           onPress={() => {
             Haptics.selectionAsync();
             setActiveTab("owed_to_me");
           }}
           style={[
-            styles.summaryCard,
-            {
-              backgroundColor:
-                activeTab === "owed_to_me"
-                  ? theme.income + "22"
-                  : theme.card,
-              borderColor:
-                activeTab === "owed_to_me"
-                  ? theme.income + "66"
-                  : theme.border,
-            },
+            styles.summaryCardWrapper,
+            activeTab === "owed_to_me" && styles.activeCard
           ]}
         >
-          <Text
-            style={[
-              styles.summaryLabel,
-              {
-                color: theme.income,
-                fontFamily: "Inter_500Medium",
-              },
-            ]}
+          <LinearGradient
+            colors={activeTab === "owed_to_me" ? ["#DCFCE7", "#BBF7D0", "#86EFAC"] : ["#F0FDF4", "#DCFCE7", "#BBF7D0"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.summaryCardGradient}
           >
-            {t("owedToMe")}
-          </Text>
-          <Text
-            style={[
-              styles.summaryAmount,
-              { color: theme.income, fontFamily: "Inter_700Bold" },
-            ]}
-            numberOfLines={1}
-          >
-            {formatEGP(totalOwedToMe)}
-          </Text>
+            <View style={styles.summaryCardRow}>
+              <View style={styles.summaryLeft}>
+                <Text style={[styles.summaryLabel, { color: "#065F46" }]}>{t("owedToMe")}</Text>
+                <Text style={[styles.summaryAmount, { color: "#065F46" }]}>
+                  {formatEGP(totalOwedToMe)}
+                </Text>
+                <Text style={[styles.summarySub, { color: "#047857" }]}>
+                  {countOwedToMe} {t("people")}
+                </Text>
+              </View>
+              <View style={styles.summaryRight}>
+                <Svg width="60" height="60" viewBox="0 0 60 60">
+                  <Defs>
+                    <SvgLinearGradient id="greenGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+                      <Stop offset="0%" stopColor="#059669" stopOpacity="0.4" />
+                      <Stop offset="100%" stopColor="#10B981" stopOpacity="0.8" />
+                    </SvgLinearGradient>
+                  </Defs>
+                  <Path
+                    d="M5,45 Q15,35 20,40 T35,30 T45,20 T55,10"
+                    stroke="#059669"
+                    strokeWidth="2.5"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                  <Path
+                    d="M52,7 L58,13 L54,10 L50,16"
+                    stroke="#059669"
+                    strokeWidth="2"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </Svg>
+              </View>
+            </View>
+          </LinearGradient>
         </Pressable>
+
+        {/* I Owe Card - Very Soft Red Gradient */}
         <Pressable
           onPress={() => {
             Haptics.selectionAsync();
             setActiveTab("i_owe");
           }}
           style={[
-            styles.summaryCard,
-            {
-              backgroundColor:
-                activeTab === "i_owe"
-                  ? theme.expense + "22"
-                  : theme.card,
-              borderColor:
-                activeTab === "i_owe"
-                  ? theme.expense + "66"
-                  : theme.border,
-            },
+            styles.summaryCardWrapper,
+            activeTab === "i_owe" && styles.activeCard
           ]}
         >
-          <Text
-            style={[
-              styles.summaryLabel,
-              { color: theme.expense, fontFamily: "Inter_500Medium" },
-            ]}
+          <LinearGradient
+            colors={activeTab === "i_owe" ? ["#FECACA", "#FCA5A5", "#F87171"] : ["#FEF2F2", "#FEE2E2", "#FECACA"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.summaryCardGradient}
           >
-            {t("iOwe")}
-          </Text>
-          <Text
-            style={[
-              styles.summaryAmount,
-              { color: theme.expense, fontFamily: "Inter_700Bold" },
-            ]}
-            numberOfLines={1}
-          >
-            {formatEGP(totalIOwe)}
-          </Text>
+            <View style={styles.summaryCardRow}>
+              <View style={styles.summaryLeft}>
+                <Text style={[styles.summaryLabel, { color: "#991B1B" }]}>{t("iOwe")}</Text>
+                <Text style={[styles.summaryAmount, { color: "#991B1B" }]}>
+                  {formatEGP(totalIOwe)}
+                </Text>
+                <Text style={[styles.summarySub, { color: "#B91C1C" }]}>
+                  {countIOwe} {t("people")}
+                </Text>
+              </View>
+              <View style={styles.summaryRight}>
+                <Svg width="60" height="60" viewBox="0 0 60 60">
+                  <Defs>
+                    <SvgLinearGradient id="redGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <Stop offset="0%" stopColor="#DC2626" stopOpacity="0.8" />
+                      <Stop offset="100%" stopColor="#991B1B" stopOpacity="0.4" />
+                    </SvgLinearGradient>
+                  </Defs>
+                  <Path
+                    d="M5,15 Q15,25 20,20 T35,30 T45,40 T55,50"
+                    stroke="#DC2626"
+                    strokeWidth="2.5"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
+                  <Path
+                    d="M52,53 L58,47 L54,50 L50,44"
+                    stroke="#DC2626"
+                    strokeWidth="2"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </Svg>
+              </View>
+            </View>
+          </LinearGradient>
         </Pressable>
       </View>
 
@@ -579,6 +635,79 @@ function DebtCard({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  headerWhite: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    backgroundColor: "#FFFFFF",
+  },
+  titleBlack: {
+    fontSize: 28,
+    color: "#000000",
+  },
+  addBtnBlue: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#3B82F6",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  summaryContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  summaryCardWrapper: {
+    borderRadius: 20,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  activeCard: {
+    transform: [{ scale: 1.02 }],
+  },
+  summaryCardGradient: {
+    borderRadius: 20,
+    padding: 18,
+  },
+  summaryCardRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  summaryLeft: {
+    flex: 1,
+  },
+  summaryRight: {
+    width: 60,
+    alignItems: "flex-end",
+  },
+  summaryLabel: {
+    fontSize: 13,
+    fontWeight: "500",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  summaryAmount: {
+    fontSize: 28,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  summarySub: {
+    fontSize: 12,
+  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -595,15 +724,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  summaryRow: { flexDirection: "row", gap: 12 },
-  summaryCard: {
-    flex: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-  },
-  summaryLabel: { fontSize: 12, marginBottom: 6 },
-  summaryAmount: { fontSize: 17 },
   list: { paddingHorizontal: 20, paddingTop: 4 },
   emptyContainer: { flex: 1 },
   emptyContent: {

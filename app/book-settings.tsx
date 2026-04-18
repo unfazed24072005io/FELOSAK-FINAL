@@ -18,8 +18,6 @@ import * as Haptics from "expo-haptics";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { getApiUrl } from "@/lib/query-client";
-import { fetch } from "expo/fetch";
 import Colors from "@/constants/colors";
 
 interface Member {

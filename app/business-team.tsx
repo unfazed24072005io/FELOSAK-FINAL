@@ -17,8 +17,6 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
-import { fetch } from "expo/fetch";
 import Colors from "@/constants/colors";
 
 interface Member {
