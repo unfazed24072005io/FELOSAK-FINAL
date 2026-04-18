@@ -1,0 +1,38 @@
+workflows:
+  android-apk-local:
+    name: Android APK Local Build
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      node: 18
+      npm: 9
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm install
+      
+      - name: Install Expo
+        script: |
+          npm install -g expo-cli
+      
+      - name: Prebuild for Android
+        script: |
+          npx expo prebuild --platform android --clean
+      
+      - name: Setup Android SDK
+        script: |
+          echo "y" | sdkmanager "platforms;android-33" "build-tools;33.0.0"
+      
+      - name: Build APK
+        script: |
+          cd android
+          ./gradlew assembleRelease
+          cd ..
+      
+      - name: Copy APK
+        script: |
+          cp android/app/build/outputs/apk/release/app-release.apk ./app-release.apk
+    
+    artifacts:
+      - app-release.apk
+      - android/app/build/outputs/apk/release/*.apk
