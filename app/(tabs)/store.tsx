@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from "react";
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   FlatList,
   Image,
@@ -20,7 +21,6 @@ import { useApp, Product } from "@/context/AppContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP } from "@/utils/format";
-import { getApiUrl } from "@/lib/query-client";
 
 export default function StoreScreen() {
   const insets = useSafeAreaInsets();
@@ -37,16 +37,7 @@ export default function StoreScreen() {
 
   const handleShare = useCallback(async () => {
     if (!activeBook) return;
-    const url = getApiUrl() + "/store/" + activeBook.id;
-    try {
-      if (Platform.OS === "web") {
-        (window as any).open(url);
-      } else {
-        await Linking.openURL(url);
-      }
-    } catch (e) {
-      console.error("Failed to open store URL", e);
-    }
+    alert("Store sharing will be available soon");
   }, [activeBook]);
 
   const handleLongPress = useCallback((product: Product) => {
@@ -93,7 +84,7 @@ export default function StoreScreen() {
           <Image source={{ uri: item.image }} style={styles.productImage} />
         ) : (
           <View style={[styles.productImagePlaceholder, { backgroundColor: theme.surface }]}>
-            <Feather name="package" size={32} color={theme.textSecondary} />
+            <Feather name="package" size={40} color={theme.textSecondary} />
           </View>
         )}
         <View style={styles.productInfo}>
@@ -149,7 +140,7 @@ export default function StoreScreen() {
           style={[
             styles.header,
             {
-              paddingTop: topPad + 16,
+              paddingTop: topPad + 8,
               borderBottomColor: theme.border,
               backgroundColor: theme.background,
             },
@@ -175,7 +166,7 @@ export default function StoreScreen() {
         style={[
           styles.header,
           {
-            paddingTop: topPad + 16,
+            marginTop: 20,
             borderBottomColor: theme.border,
             backgroundColor: theme.background,
           },
@@ -185,16 +176,21 @@ export default function StoreScreen() {
           {t("store")}
         </Text>
         {activeBook.isCloud && (
-        <Pressable
-          testID="share-store-btn"
-          onPress={handleShare}
-          style={({ pressed }) => [
-            styles.shareBtn,
-            { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 },
-          ]}
-        >
-          <Feather name="share-2" size={18} color="#FFF" />
-        </Pressable>
+          <Pressable
+            testID="share-store-btn"
+            onPress={handleShare}
+            style={({ pressed }) => [
+              styles.shareBtn,
+              {
+                backgroundColor: "#FFFFFF",
+                borderWidth: 1,
+                borderColor: "#E0E0E0",
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Feather name="share-2" size={18} color="#888888" />
+          </Pressable>
         )}
       </View>
 
@@ -229,23 +225,39 @@ export default function StoreScreen() {
         }
       />
 
-      <Pressable
-        testID="add-product-fab"
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          router.push("/add-product");
-        }}
-        style={({ pressed }) => [
-          styles.fab,
-          {
-            bottom: bottomPad + (Platform.OS === "web" ? 84 : 50) + 16,
-            backgroundColor: "#C9A84C",
-            opacity: pressed ? 0.85 : 1,
-          },
-        ]}
-      >
-        <Feather name="plus" size={26} color="#FFF" />
-      </Pressable>
+      <View style={{ position: "absolute", bottom: bottomPad + 20, left: 20, right: 20 }}>
+  <Pressable
+    testID="add-product-btn"
+    onPress={() => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      router.push("/add-product");
+    }}
+    style={({ pressed }) => ({ 
+      opacity: pressed ? 0.85 : 1,
+      borderRadius: 12,
+      overflow: "hidden",
+    })}
+  >
+    <LinearGradient
+      colors={['#3B82F6', '#06B6D4', '#10B981']}  // Blue -> Cyan -> Green
+  start={{ x: 1, y: 0 }}
+  end={{ x: 0, y: 0 }}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: 14,
+        marginBottom: 80,
+        gap: 8,
+      }}
+    >
+      <Feather name="plus" size={20} color="#FFFFFF" />
+      <Text style={{ color: "#FFFFFF", fontSize: 16, fontFamily: "Inter_700Bold" }}>
+        Add Product
+      </Text>
+    </LinearGradient>
+  </Pressable>
+</View>
 
       <Modal
         visible={showDeleteConfirm}
@@ -298,81 +310,86 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   title: { fontSize: 28 },
   shareBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  list: { paddingHorizontal: 12, paddingTop: 12 },
-  columnWrapper: { gap: 10 },
-  emptyContainer: { flex: 1 },
-  emptyContent: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingTop: 80,
-  },
-  emptyText: { fontSize: 17 },
-  emptySubtext: { fontSize: 14, textAlign: "center", paddingHorizontal: 40 },
-  productCard: {
-    flex: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: "hidden",
-    marginBottom: 10,
-    maxWidth: "49%" as any,
-  },
+  list: { 
+  paddingHorizontal: 16, 
+  paddingTop: 12,
+},
+columnWrapper: { 
+  justifyContent: "center",
+  gap: 16,
+},
+productCard: {
+  width: "80%",  // Fixed percentage width
+  borderRadius: 16,
+  borderWidth: 1,
+  overflow: "hidden",
+  marginBottom: 16,
+  height: 320,
+  marginBottom: -40
+},
   productImage: {
     width: "100%",
-    height: 120,
+    height: 140,
     resizeMode: "cover",
   },
   productImagePlaceholder: {
     width: "100%",
-    height: 120,
+    height: 140,
     alignItems: "center",
     justifyContent: "center",
   },
   productInfo: {
-    padding: 10,
-    gap: 4,
+    padding: 12,
+    gap: 6,
   },
   productName: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 16,
+    lineHeight: 20,
+    marginTop: 26
   },
   productPrice: {
-    fontSize: 15,
+    fontSize: 18,
   },
   categoryBadge: {
     alignSelf: "flex-start",
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     marginTop: 2,
   },
   categoryText: {
-    fontSize: 11,
+    fontSize: 12,
   },
   stockRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 4,
+    marginTop: 6,
   },
   stockLabel: {
-    fontSize: 11,
+    fontSize: 12,
   },
   stockSwitch: {
-    transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }],
+    transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }],
   },
   fab: {
     position: "absolute",

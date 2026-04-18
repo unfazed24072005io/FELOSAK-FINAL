@@ -17,8 +17,6 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
-
 export default function BusinessProfileScreen() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();

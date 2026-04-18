@@ -8,6 +8,8 @@ import {
   View,
   useColorScheme,
   ActivityIndicator,
+  Modal,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -18,6 +20,56 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
+
+// Available icons for cash books
+const AVAILABLE_ICONS = [
+  "book", "shopping-bag", "coffee", "car", "home", "heart", "briefcase", 
+  "gift", "dollar-sign", "credit-card", "smartphone", "watch", "camera", 
+  "headphones", "airplay", "cloud", "sun", "moon", "star", "award",
+  "trending-up", "trending-down", "bar-chart-2", "pie-chart", "activity"
+];
+
+// Icon Picker Modal Component
+function IconPickerModal({ visible, onClose, onSelectIcon, currentIcon, theme, isDark }: { 
+  visible: boolean; 
+  onClose: () => void; 
+  onSelectIcon: (icon: string) => void; 
+  currentIcon: string; 
+  theme: typeof Colors.dark; 
+  isDark: boolean;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.iconPickerContent, { backgroundColor: isDark ? '#1f2937' : '#FFFFFF' }]}>
+          <View style={styles.iconPickerHeader}>
+            <Text style={[styles.iconPickerTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>Choose Icon</Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Feather name="x" size={24} color={theme.textSecondary} />
+            </Pressable>
+          </View>
+          <ScrollView contentContainerStyle={styles.iconGrid}>
+            {AVAILABLE_ICONS.map((icon) => (
+              <Pressable 
+                key={icon} 
+                onPress={() => { onSelectIcon(icon); onClose(); }} 
+                style={[
+                  styles.iconOption, 
+                  { 
+                    backgroundColor: currentIcon === icon ? theme.tint + '20' : 'transparent', 
+                    borderColor: currentIcon === icon ? theme.tint : theme.border 
+                  }
+                ]}
+              >
+                <Feather name={icon as any} size={24} color={currentIcon === icon ? theme.tint : theme.textSecondary} />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export default function CreateBookScreen() {
   const insets = useSafeAreaInsets();
@@ -30,7 +82,9 @@ export default function CreateBookScreen() {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [isCloud, setIsCloud] = useState(false);
+  const [isCloud, setIsCloud] = useState(false); // false = Personal, true = Business
+  const [selectedIcon, setSelectedIcon] = useState("book");
+  const [showIconPicker, setShowIconPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -42,13 +96,18 @@ export default function CreateBookScreen() {
       return;
     }
     if (isCloud && !user) {
-      setError("You need to sign in to create a cloud book");
+      setError("You need to sign in to create a business book");
       return;
     }
     setLoading(true);
     setError("");
     try {
-      await createBook(name.trim(), description.trim(), isCloud);
+      await createBook(
+        name.trim(), 
+        description.trim(), 
+        isCloud, 
+        selectedIcon // Pass the selected icon
+      );
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (e: any) {
@@ -56,7 +115,7 @@ export default function CreateBookScreen() {
     } finally {
       setLoading(false);
     }
-  }, [name, description, isCloud, user, createBook, t]);
+  }, [name, description, isCloud, user, createBook, t, selectedIcon]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -80,7 +139,7 @@ export default function CreateBookScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          {t("newBook")}
+          Create New Book
         </Text>
         <View style={{ width: 22 }} />
       </View>
@@ -90,6 +149,32 @@ export default function CreateBookScreen() {
         keyboardShouldPersistTaps="handled"
         bottomOffset={20}
       >
+        {/* Icon Selection */}
+        <View style={styles.fieldGroup}>
+          <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+            Book Icon
+          </Text>
+          <Pressable 
+            onPress={() => setShowIconPicker(true)} 
+            style={({ pressed }) => [
+              styles.iconSelector,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                opacity: pressed ? 0.7 : 1,
+              }
+            ]}
+          >
+            <View style={[styles.iconPreview, { backgroundColor: theme.tint + '20' }]}>
+              <Feather name={selectedIcon as any} size={28} color={theme.tint} />
+            </View>
+            <Text style={[styles.iconSelectorText, { color: theme.text }]}>
+              {selectedIcon.charAt(0).toUpperCase() + selectedIcon.slice(1)}
+            </Text>
+            <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+          </Pressable>
+        </View>
+
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
             {t("bookName")}
@@ -139,7 +224,7 @@ export default function CreateBookScreen() {
 
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {t("storageType")}
+            Book Type
           </Text>
           <View style={styles.typeRow}>
             <Pressable
@@ -152,12 +237,12 @@ export default function CreateBookScreen() {
                 },
               ]}
             >
-              <Feather name="smartphone" size={20} color={!isCloud ? theme.tint : theme.textSecondary} />
+              <Feather name="user" size={20} color={!isCloud ? theme.tint : theme.textSecondary} />
               <Text style={[styles.typeName, { color: !isCloud ? theme.tint : theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                {t("local")}
+                Personal
               </Text>
               <Text style={[styles.typeDesc, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                {t("storedOnDeviceOnly")}
+                Stored on device only
               </Text>
             </Pressable>
             <Pressable
@@ -176,12 +261,12 @@ export default function CreateBookScreen() {
                 },
               ]}
             >
-              <Feather name="cloud" size={20} color={isCloud ? theme.income : theme.textSecondary} />
+              <Feather name="briefcase" size={20} color={isCloud ? theme.income : theme.textSecondary} />
               <Text style={[styles.typeName, { color: isCloud ? theme.income : theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                {t("cloud")}
+                Business
               </Text>
               <Text style={[styles.typeDesc, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                {user ? t("syncedAndShareable") : t("signInRequired")}
+                {user ? "Synced & shareable with team" : "Sign in required"}
               </Text>
             </Pressable>
           </View>
@@ -227,12 +312,21 @@ export default function CreateBookScreen() {
               <ActivityIndicator color="#FFF" size="small" />
             ) : (
               <Text style={[styles.createText, { fontFamily: "Inter_600SemiBold" }]}>
-                {t("save")}
+                Create Book
               </Text>
             )}
           </Pressable>
         </View>
       </KeyboardAwareScrollView>
+
+      <IconPickerModal 
+        visible={showIconPicker} 
+        onClose={() => setShowIconPicker(false)} 
+        onSelectIcon={setSelectedIcon}
+        currentIcon={selectedIcon}
+        theme={theme}
+        isDark={isDark}
+      />
     </View>
   );
 }
@@ -299,4 +393,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   createText: { color: "#FFF", fontSize: 16 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 32 },
+  iconPickerContent: { width: "90%", maxWidth: 400, borderRadius: 24, padding: 20, maxHeight: "80%" },
+  iconPickerHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  iconPickerTitle: { fontSize: 20, fontFamily: "Inter_700Bold" },
+  iconGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 12 },
+  iconOption: { width: 56, height: 56, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  iconSelector: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 14, borderWidth: 1 },
+  iconPreview: { width: 50, height: 50, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  iconSelectorText: { flex: 1, fontSize: 15 },
 });

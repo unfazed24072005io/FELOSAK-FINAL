@@ -19,8 +19,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP } from "@/utils/format";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
-
 interface InvoiceData {
   id: string;
   invoiceNumber: string;

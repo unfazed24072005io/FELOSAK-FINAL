@@ -21,7 +21,12 @@ function NativeTabLayout() {
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="debtors">
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
-        <Label>{t("arAp")}</Label>
+        <Label>inOut</Label>
+      </NativeTabs.Trigger>
+      
+      <NativeTabs.Trigger name="compliance">
+        <Icon sf={{ default: "checkmark.shield", selected: "checkmark.shield.fill" }} />
+        <Label>{t("compliance") || "Compliance"}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="store">
         <Icon sf={{ default: "storefront", selected: "storefront.fill" }} />
@@ -58,6 +63,9 @@ function ClassicTabLayout() {
           borderTopColor: theme.border,
           elevation: 0,
           height: Platform.OS === "web" ? 84 : undefined,
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
+          overflow: "hidden",
         },
         tabBarBackground: () =>
           Platform.OS === "ios" ? (
@@ -96,10 +104,30 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="debtors"
         options={{
-          title: t("arAp"),
+          title: "Cash In / Cash Out",
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="users" size={size} color={color} />;
+          },
+        }}
+      />
+      <Tabs.Screen
+        name="invoices"
+        options={{
+          title: t("invoices") || "Invoices",
+          tabBarIcon: ({ color, size }) => {
+            const { Feather } = require("@expo/vector-icons");
+            return <Feather name="file-text" size={size} color={color} />;
+          },
+        }}
+      />
+      <Tabs.Screen
+        name="compliance"
+        options={{
+          title: t("compliance") || "Compliance",
+          tabBarIcon: ({ color, size }) => {
+            const { Feather } = require("@expo/vector-icons");
+            return <Feather name="shield" size={size} color={color} />;
           },
         }}
       />

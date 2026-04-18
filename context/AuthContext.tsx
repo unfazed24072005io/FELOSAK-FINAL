@@ -1,18 +1,27 @@
 import React, { createContext, useCallback, useContext, useState, useEffect } from "react";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
-import { fetch } from "expo/fetch";
+import { 
+  createUserWithEmailAndPassword, 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  User as FirebaseUser,
+  updateProfile
+} from "firebase/auth";
+import { doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
+import { auth, db } from "@/config/firebase";
 
 interface AuthUser {
   id: string;
   username: string;
   displayName: string;
+  email: string;
 }
 
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string, displayName: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -23,36 +32,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const baseUrl = getApiUrl();
-        const url = new URL("/api/auth/me", baseUrl);
-        const res = await fetch(url.toString(), { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json();
-          setUser(data);
-        }
-      } catch (_e) {
-      } finally {
-        setIsLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        // Get additional user data from Firestore
+        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+        const userData = userDoc.data();
+        
+        setUser({
+          id: firebaseUser.uid,
+          username: userData?.username || firebaseUser.email?.split('@')[0] || '',
+          displayName: userData?.displayName || firebaseUser.displayName || '',
+          email: firebaseUser.email || '',
+        });
+      } else {
+        setUser(null);
       }
-    })();
+      setIsLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const res = await apiRequest("POST", "/api/auth/login", { username, password });
-    const data = await res.json();
-    setUser(data);
+  const login = useCallback(async (email: string, password: string) => {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const firebaseUser = userCredential.user;
+    
+    // Get user data from Firestore
+    const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+    const userData = userDoc.data();
+    
+    setUser({
+      id: firebaseUser.uid,
+      username: userData?.username || email.split('@')[0],
+      displayName: userData?.displayName || firebaseUser.displayName || '',
+      email: firebaseUser.email || '',
+    });
   }, []);
 
-  const register = useCallback(async (username: string, password: string, displayName: string) => {
-    const res = await apiRequest("POST", "/api/auth/register", { username, password, displayName });
-    const data = await res.json();
-    setUser(data);
+  const register = useCallback(async (email: string, password: string, displayName: string) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    const firebaseUser = userCredential.user;
+    
+    // Update profile
+    await updateProfile(firebaseUser, { displayName });
+    
+    // Create user document in Firestore
+    const username = email.split('@')[0];
+    await setDoc(doc(db, 'users', firebaseUser.uid), {
+      username,
+      displayName,
+      email,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+    
+    setUser({
+      id: firebaseUser.uid,
+      username,
+      displayName,
+      email,
+    });
   }, []);
 
   const logout = useCallback(async () => {
-    await apiRequest("POST", "/api/auth/logout");
+    await signOut(auth);
     setUser(null);
   }, []);
 
