@@ -1,6 +1,6 @@
 workflows:
   build:
-    name: Build APK
+    name: Build APK with EAS
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
@@ -9,8 +9,12 @@ workflows:
       - name: npm install
         script: npm install
       
-      - name: Build
-        script: npx expo prebuild --platform android && cd android && ./gradlew assembleRelease && cd .. && cp android/app/build/outputs/apk/release/app-release.apk ./app.apk || true
+      - name: Install EAS CLI
+        script: npm install -g eas-cli
+      
+      - name: Build APK
+        script: |
+          eas build --platform android --profile preview --local --non-interactive --output=./app.apk
       
     artifacts:
-      - "*.apk"
+      - "app.apk"
