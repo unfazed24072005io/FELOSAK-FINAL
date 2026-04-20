@@ -149,8 +149,7 @@ export default function DebtorsScreen() {
         style={[
           styles.headerWhite,
           {
-            marginTop: 16,
-            backgroundColor: "#FFFFFF",
+            marginTop: insets.top + 40,
           },
         ]}
       >
@@ -641,7 +640,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: "#FFFFFF",
   },
   titleBlack: {
     fontSize: 28,

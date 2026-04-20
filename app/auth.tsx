@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useState } from "react";
 import {
   Alert,
@@ -37,37 +38,45 @@ export default function AuthScreen() {
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
   const handleSubmit = useCallback(async () => {
-    setError("");
-    if (!username.trim() || !password.trim()) {
-      setError("Please fill in all fields");
-      return;
+  setError("");
+  if (!username.trim() || !password.trim()) {
+    setError("Please fill in all fields");
+    return;
+  }
+  if (mode === "register" && !displayName.trim()) {
+    setError("Please enter a display name");
+    return;
+  }
+  setLoading(true);
+  try {
+    if (mode === "login") {
+      await login(username.trim(), password);
+    } else {
+      await register(username.trim(), password, displayName.trim());
     }
-    if (mode === "register" && !displayName.trim()) {
-      setError("Please enter a display name");
-      return;
-    }
-    setLoading(true);
-    try {
-      if (mode === "login") {
-        await login(username.trim(), password);
-      } else {
-        await register(username.trim(), password, displayName.trim());
-      }
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    
+    // Check for redirect after login using AsyncStorage
+    const redirectPath = await AsyncStorage.getItem('redirectAfterLogin');
+    if (redirectPath) {
+      await AsyncStorage.removeItem('redirectAfterLogin');
+      router.push(redirectPath);
+    } else {
       router.back();
-    } catch (e: any) {
-      const msg = e.message || "Something went wrong";
-      const cleanMsg = msg.includes(":") ? msg.split(":").slice(1).join(":").trim() : msg;
-      try {
-        const parsed = JSON.parse(cleanMsg);
-        setError(parsed.message || cleanMsg);
-      } catch {
-        setError(cleanMsg);
-      }
-    } finally {
-      setLoading(false);
     }
-  }, [mode, username, password, displayName, login, register]);
+  } catch (e: any) {
+    const msg = e.message || "Something went wrong";
+    const cleanMsg = msg.includes(":") ? msg.split(":").slice(1).join(":").trim() : msg;
+    try {
+      const parsed = JSON.parse(cleanMsg);
+      setError(parsed.message || cleanMsg);
+    } catch {
+      setError(cleanMsg);
+    }
+  } finally {
+    setLoading(false);
+  }
+}, [mode, username, password, displayName, login, register]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -137,7 +146,7 @@ export default function AuthScreen() {
 
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {t("username")}
+            {t("email")}
           </Text>
           <TextInput
             style={[
@@ -151,7 +160,7 @@ export default function AuthScreen() {
             ]}
             value={username}
             onChangeText={setUsername}
-            placeholder="username"
+            placeholder="email"
             placeholderTextColor={theme.textSecondary + "88"}
             autoCapitalize="none"
             autoCorrect={false}

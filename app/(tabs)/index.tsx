@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert } from "react-native";
 import { Dimensions } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
@@ -83,6 +84,7 @@ const generateWavyPath = (data, height, maxValue, width) => {
 };
 
 // ==================== PROFILE MODAL COMPONENT (FULLY FIXED) ====================
+// ==================== PROFILE MODAL COMPONENT (FIXED WITH ASYNCSTORAGE) ====================
 function ProfileModal({ visible, onClose, theme, isDark, onLogout }: { visible: boolean; onClose: () => void; theme: typeof Colors.dark; isDark: boolean; onLogout: () => void }) {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -95,23 +97,26 @@ function ProfileModal({ visible, onClose, theme, isDark, onLogout }: { visible: 
   const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
-    if (visible && user) {
-      try {
-        const savedData = localStorage.getItem(`${STORAGE_KEY}_${user.uid}`);
-        if (savedData) {
-          setProfile(JSON.parse(savedData));
-        } else {
-          setProfile({
-            name: user.displayName || user.email?.split('@')[0] || "",
-            taxId: "",
-            bankAccount: "",
-            paymentLink: "",
-          });
+    const loadProfile = async () => {
+      if (visible && user) {
+        try {
+          const savedData = await AsyncStorage.getItem(`${STORAGE_KEY}_${user.uid}`);
+          if (savedData) {
+            setProfile(JSON.parse(savedData));
+          } else {
+            setProfile({
+              name: user.displayName || user.email?.split('@')[0] || "",
+              taxId: "",
+              bankAccount: "",
+              paymentLink: "",
+            });
+          }
+        } catch (error) {
+          console.error("Error loading profile:", error);
         }
-      } catch (error) {
-        console.error("Error loading profile:", error);
       }
-    }
+    };
+    loadProfile();
   }, [visible, user]);
 
   const handleLogout = () => {
@@ -123,11 +128,8 @@ function ProfileModal({ visible, onClose, theme, isDark, onLogout }: { visible: 
         { 
           text: "Sign Out", 
           style: "destructive", 
-          onPress: () => {
-            if (typeof window !== 'undefined') {
-              localStorage.clear();
-              sessionStorage.clear();
-            }
+          onPress: async () => {
+            await AsyncStorage.clear();
             onLogout();
           }
         }
@@ -135,10 +137,10 @@ function ProfileModal({ visible, onClose, theme, isDark, onLogout }: { visible: 
     );
   };
 
-  const saveProfile = () => {
+  const saveProfile = async () => {
     if (user) {
       try {
-        localStorage.setItem(`${STORAGE_KEY}_${user.uid}`, JSON.stringify(profile));
+        await AsyncStorage.setItem(`${STORAGE_KEY}_${user.uid}`, JSON.stringify(profile));
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setIsEditing(false);
         onClose();
@@ -393,9 +395,22 @@ function BookDashboard() {
   const [entryFilter, setEntryFilter] = useState<DashFilter>("all");
   const [payFilter, setPayFilter] = useState<DashPayFilter>("all");
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  
+  // Filter Modal States
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [tempEntryFilter, setTempEntryFilter] = useState<DashFilter>("all");
+  const [tempPayFilter, setTempPayFilter] = useState<DashPayFilter>("all");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  // Sync temp filters when modal opens
+  useEffect(() => {
+    if (showFilterModal) {
+      setTempEntryFilter(entryFilter);
+      setTempPayFilter(payFilter);
+    }
+  }, [showFilterModal, entryFilter, payFilter]);
 
   const filtered = useMemo(() => {
     let result = transactions;
@@ -453,7 +468,7 @@ function BookDashboard() {
 
   return (
     <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
-      <View style={[styles.dashHeader, { marginTop: 20, backgroundColor: theme.background }]}>
+      <View style={[styles.dashHeader, { marginTop: insets.top + 40 }]}>
         <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveBook(null); }} hitSlop={8}>
           <Feather name="arrow-left" size={22} color={theme.text} />
         </Pressable>
@@ -471,37 +486,37 @@ function BookDashboard() {
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar} contentContainerStyle={styles.filterBarContent}>
-        <Pressable onPress={() => { Haptics.selectionAsync(); setEntryFilter(entryFilter === "all" ? "income" : entryFilter === "income" ? "expense" : "all"); }}
-          style={[styles.filterChip, { 
-            backgroundColor: entryFilter !== "all" ? theme.tint + "22" : theme.card, 
-            borderColor: entryFilter !== "all" ? theme.tint + "88" : theme.border 
-          }]}>
-          <Text style={[styles.filterChipText, { color: entryFilter !== "all" ? theme.tint : theme.text }]}>
-            {entryFilter === "all" ? t("entryType") : entryFilter === "income" ? t("cashIn") : t("cashOut")}
-          </Text>
-          <Feather name="chevron-down" size={12} color={entryFilter !== "all" ? theme.tint : theme.textSecondary} />
-        </Pressable>
-        
-        <Pressable onPress={() => { Haptics.selectionAsync(); const modes = ["all", "cash", "instapay", "vodafone_cash", "fawry", "bank_transfer", "international", "cheque", "other"]; const idx = modes.indexOf(payFilter); setPayFilter(modes[(idx + 1) % modes.length]); }}
-          style={[styles.filterChip, { 
-            backgroundColor: payFilter !== "all" ? theme.tint + "22" : theme.card, 
-            borderColor: payFilter !== "all" ? theme.tint + "88" : theme.border 
-          }]}>
-          <Text style={[styles.filterChipText, { color: payFilter !== "all" ? theme.tint : theme.text }]}>
-            {payFilter === "all" ? t("paymentMode") : getPaymentModeLabel(payFilter)}
-          </Text>
-          <Feather name="chevron-down" size={12} color={payFilter !== "all" ? theme.tint : theme.textSecondary} />
-        </Pressable>
-        
+      {/* Filter Button */}
+      <Pressable 
+        onPress={() => setShowFilterModal(true)}
+        style={({ pressed }) => [
+          styles.filterButton,
+          { 
+            backgroundColor: (entryFilter !== "all" || payFilter !== "all") ? theme.tint : theme.card,
+            borderColor: (entryFilter !== "all" || payFilter !== "all") ? theme.tint : theme.border,
+            transform: [{ scale: pressed ? 0.97 : 1 }]
+          }
+        ]}
+      >
+        <Feather name="filter" size={18} color={(entryFilter !== "all" || payFilter !== "all") ? "#FFF" : theme.text} />
+        <Text style={[
+          styles.filterButtonText, 
+          { color: (entryFilter !== "all" || payFilter !== "all") ? "#FFF" : theme.text }
+        ]}>
+          {t("filter")}
+          {(entryFilter !== "all" || payFilter !== "all") && (
+            <Text style={styles.filterBadge}> • Active</Text>
+          )}
+        </Text>
         {(entryFilter !== "all" || payFilter !== "all") && (
-          <Pressable onPress={() => { Haptics.selectionAsync(); setEntryFilter("all"); setPayFilter("all"); }}
-            style={[styles.filterChip, { backgroundColor: theme.expense + "15", borderColor: theme.expense + "44" }]}>
-            <Feather name="x" size={14} color={theme.expense} />
-            <Text style={[styles.filterChipText, { color: theme.expense }]}>{t("clear")}</Text>
+          <Pressable 
+            onPress={(e) => { e.stopPropagation(); setEntryFilter("all"); setPayFilter("all"); }}
+            style={styles.clearFilterIcon}
+          >
+            <Feather name="x" size={14} color="#FFF" />
           </Pressable>
         )}
-      </ScrollView>
+      </Pressable>
 
       <SectionList
         sections={sections}
@@ -510,7 +525,7 @@ function BookDashboard() {
         stickySectionHeadersEnabled={false}
         ListHeaderComponent={
           <View style={styles.dashContent}>
-            <View style={[styles.summaryCard, { backgroundColor: isDark ? 'rgba(30,30,35,0.8)' : 'rgba(255,255,255,0.8)', borderColor: 'rgba(255,255,255,0.2)', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 5 }]}>
+            <View style={[styles.summaryCard]}>
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: theme.text }]}>{t("netBalance")}</Text>
                 <Text style={[styles.summaryValue, { color: filteredTotals.balance >= 0 ? "#10B981" : "#EF4444" }]}>₹ {filteredTotals.balance?.toLocaleString() || "0"}</Text>
@@ -553,6 +568,7 @@ function BookDashboard() {
         </Pressable>
       </View>
 
+      {/* Menu Modal */}
       <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
         <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
           <View style={[styles.menuCard, { backgroundColor: theme.card, borderColor: theme.border, top: topPad + 48 }]}>
@@ -568,6 +584,7 @@ function BookDashboard() {
         </Pressable>
       </Modal>
 
+      {/* Delete All Confirmation Modal */}
       <Modal visible={showDeleteAllModal} transparent animationType="fade" onRequestClose={() => setShowDeleteAllModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
@@ -577,6 +594,149 @@ function BookDashboard() {
               <Pressable onPress={() => setShowDeleteAllModal(false)} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}><Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text></Pressable>
               <Pressable onPress={handleConfirmDeleteAll} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}><Text style={[styles.modalBtnText, { color: "#FFF" }]}>{t("delete")}</Text></Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilterModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <View style={styles.filterModalOverlay}>
+          <View style={[styles.filterModalContent, { backgroundColor: theme.card }]}>
+            <View style={styles.filterModalHeader}>
+              <Text style={[styles.filterModalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+                {t("Filter") || "Filter Transactions"}
+              </Text>
+              <Pressable onPress={() => setShowFilterModal(false)} hitSlop={8}>
+                <Feather name="x" size={24} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Entry Type Section */}
+              <Text style={[styles.filterSectionLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                {t("entryType") || "Entry Type"}
+              </Text>
+              <View style={styles.filterOptionsRow}>
+                {[
+                  { value: "all", label: t("all") || "All", icon: "list" },
+                  { value: "income", label: t("cashIn") || "Income", icon: "trending-up" },
+                  { value: "expense", label: t("cashOut") || "Expense", icon: "trending-down" },
+                ].map((option) => (
+                  <Pressable
+                    key={option.value}
+                    onPress={() => setTempEntryFilter(option.value as DashFilter)}
+                    style={({ pressed }) => [
+                      styles.filterOption,
+                      {
+                        backgroundColor: tempEntryFilter === option.value ? theme.tint + "20" : theme.surface,
+                        borderColor: tempEntryFilter === option.value ? theme.tint : theme.border,
+                        transform: [{ scale: pressed ? 0.98 : 1 }],
+                      }
+                    ]}
+                  >
+                    <Feather name={option.icon as any} size={18} color={tempEntryFilter === option.value ? theme.tint : theme.textSecondary} />
+                    <Text style={[styles.filterOptionText, { color: tempEntryFilter === option.value ? theme.tint : theme.text }]}>
+                      {option.label}
+                    </Text>
+                    {tempEntryFilter === option.value && (
+                      <Feather name="check" size={16} color={theme.tint} />
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Payment Mode Section */}
+              <Text style={[styles.filterSectionLabel, { color: theme.text, fontFamily: "Inter_600SemiBold", marginTop: 20 }]}>
+                {t("paymentMode") || "Payment Mode"}
+              </Text>
+              <View style={styles.filterOptionsGrid}>
+                {[
+                  { value: "all", label: t("all") || "All", icon: "grid" },
+                  { value: "cash", label: "Cash", icon: "dollar-sign" },
+                  { value: "instapay", label: "Instapay", icon: "smartphone" },
+                  { value: "vodafone_cash", label: "Vodafone Cash", icon: "phone" },
+                  { value: "fawry", label: "Fawry", icon: "credit-card" },
+                  { value: "bank_transfer", label: "Bank Transfer", icon: "building" },
+                  { value: "international", label: "International", icon: "globe" },
+                  { value: "cheque", label: "Cheque", icon: "file-text" },
+                  { value: "other", label: "Other", icon: "more-horizontal" },
+                ].map((option) => (
+                  <Pressable
+                    key={option.value}
+                    onPress={() => setTempPayFilter(option.value as DashPayFilter)}
+                    style={({ pressed }) => [
+                      styles.filterOptionGrid,
+                      {
+                        backgroundColor: tempPayFilter === option.value ? theme.tint + "20" : theme.surface,
+                        borderColor: tempPayFilter === option.value ? theme.tint : theme.border,
+                        transform: [{ scale: pressed ? 0.98 : 1 }],
+                      }
+                    ]}
+                  >
+                    <Feather name={option.icon as any} size={16} color={tempPayFilter === option.value ? theme.tint : theme.textSecondary} />
+                    <Text style={[styles.filterOptionGridText, { color: tempPayFilter === option.value ? theme.tint : theme.text }]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Active Filters Summary */}
+              {(tempEntryFilter !== "all" || tempPayFilter !== "all") && (
+                <View style={[styles.activeFiltersSummary, { backgroundColor: theme.tint + "10", borderColor: theme.tint + "30" }]}>
+                  <Feather name="filter" size={14} color={theme.tint} />
+                  <Text style={[styles.activeFiltersText, { color: theme.textSecondary }]}>
+                    Active filters: 
+                    {tempEntryFilter !== "all" && ` ${tempEntryFilter === "income" ? "Income" : "Expense"}`}
+                    {tempPayFilter !== "all" && ` • ${getPaymentModeLabel(tempPayFilter)}`}
+                  </Text>
+                </View>
+              )}
+
+              {/* Modal Actions */}
+              <View style={styles.filterModalActions}>
+                <Pressable
+                  onPress={() => {
+                    setTempEntryFilter("all");
+                    setTempPayFilter("all");
+                  }}
+                  style={({ pressed }) => [
+                    styles.filterResetBtn,
+                    { 
+                      backgroundColor: theme.surface,
+                      borderColor: theme.border,
+                      opacity: pressed ? 0.8 : 1 
+                    }
+                  ]}
+                >
+                  <Feather name="refresh-ccw" size={16} color={theme.textSecondary} />
+                  <Text style={[styles.filterResetText, { color: theme.textSecondary }]}>{t("reset") || "Reset"}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setEntryFilter(tempEntryFilter);
+                    setPayFilter(tempPayFilter);
+                    setShowFilterModal(false);
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }}
+                  style={({ pressed }) => [
+                    styles.filterApplyBtn,
+                    { 
+                      backgroundColor: theme.tint,
+                      opacity: pressed ? 0.85 : 1 
+                    }
+                  ]}
+                >
+                  <Feather name="check" size={18} color="#FFF" />
+                  <Text style={[styles.filterApplyText, { color: "#FFF" }]}>{t("apply") || "Apply"}</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -620,7 +780,8 @@ function EntryRow({ tx, theme, onPress }: { tx: Transaction & { runningBalance: 
 }
 
 // ==================== BOOK CARD ====================
-function BookCard({ book, theme, onPress, onLongPress, onIconChange }: { book: CashBook; theme: typeof Colors.dark; onPress: () => void; onLongPress: () => void; onIconChange?: (bookId: string, icon: string) => void }) {
+function BookCard({ book, theme, onPress, onLongPress, onIconChange, balance }: 
+  { book: CashBook; theme: typeof Colors.dark; onPress: () => void; onLongPress: () => void; onIconChange?: (bookId: string, icon: string) => void; balance?: number }) {
   const { t } = useLanguage();
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
@@ -684,14 +845,13 @@ function BookCard({ book, theme, onPress, onLongPress, onIconChange }: { book: C
             style={({ pressed: iconPressed }) => [
               styles.bookIcon, 
               { 
-                backgroundColor: theme.tint + "15",
                 transform: [{ scale: iconPressed ? 0.95 : 1 }]
               }
             ]}
           >
             <Feather name={(book.icon as any) || "book"} size={22} color={theme.tint} />
           </Pressable>
-          <View style={[styles.bookBadge, { backgroundColor: book.isCloud ? theme.income + "15" : '#F3F4F6' }]}>
+          <View style={[styles.bookBadge, {  }]}>
             <Text style={[styles.bookBadgeText, { color: book.isCloud ? theme.income : '#6B7280' }]}>
               {book.isCloud ? "Business" : "Personal"}
             </Text>
@@ -714,11 +874,11 @@ function BookCard({ book, theme, onPress, onLongPress, onIconChange }: { book: C
             <Text style={[styles.bookRole, { color: '#6B7280' }]}>{roleLabel}</Text>
           </View>
           <View style={styles.bookFooterRight}>
-            <Text style={[styles.bookBalance, { color: theme.tint }]}>
-              {formatEGPShort((book as any).balance || 0)}
-            </Text>
-            <Feather name="chevron-right" size={14} color={theme.tint} />
-          </View>
+    <Text style={[styles.bookBalance, { color: theme.tint }]}>
+      {formatEGPShort(balance || 0)}
+    </Text>
+    <Feather name="chevron-right" size={14} color={theme.tint} />
+  </View>
         </View>
       </Pressable>
       
@@ -751,19 +911,60 @@ function BooksListView() {
   const [showSortModal, setShowSortModal] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>("lastUpdated");
   const [pendingSort, setPendingSort] = useState<SortOption>("lastUpdated");
-  
+  const [showSignInModal, setShowSignInModal] = useState(false);
+  const [bookBalances, setBookBalances] = useState<Record<string, number>>({});
   const [allBooksTotals, setAllBooksTotals] = useState({ totalBalance: 0, totalIncome: 0, totalExpense: 0 });
   const [isLoadingTotals, setIsLoadingTotals] = useState(true);
 
+  // Debug user
+  useEffect(() => {
+    if (user) {
+      console.log("MY CURRENT USER ID IS:", user.id);
+    }
+  }, [user]);
+
+  // Get book balance function
+  const getBookBalance = useCallback(async (bookId: string) => {
+    if (!user || !user.id) return 0;
+    
+    try {
+      const transactionsQuery = query(
+        collection(db, 'transactions'),
+        where('userId', '==', user.id),
+        where('bookId', '==', bookId)
+      );
+      const snapshot = await getDocs(transactionsQuery);
+      
+      let balance = 0;
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.type === 'income') {
+          balance += data.amount || 0;
+        } else if (data.type === 'expense') {
+          balance -= data.amount || 0;
+        }
+      });
+      return balance;
+    } catch (error) {
+      console.error("Error calculating book balance:", error);
+      return 0;
+    }
+  }, [user]);
+
+  // Fetch all transactions totals
   useEffect(() => {
     const fetchAllTransactions = async () => {
-      if (!user) return;
+      if (!user || !user.id) {
+        console.log("No user or ID available yet");
+        setIsLoadingTotals(false);
+        return;
+      }
       
       setIsLoadingTotals(true);
       try {
         const transactionsQuery = query(
           collection(db, 'transactions'),
-          where('userId', '==', user.uid)
+          where('userId', '==', user.id)
         );
         const snapshot = await getDocs(transactionsQuery);
         
@@ -778,6 +979,8 @@ function BooksListView() {
             totalExpense += data.amount || 0;
           }
         });
+        
+        console.log("Fetched totals for user:", user.id, "Income:", totalIncome, "Expense:", totalExpense);
         
         setAllBooksTotals({
           totalBalance: totalIncome - totalExpense,
@@ -794,6 +997,22 @@ function BooksListView() {
     fetchAllTransactions();
   }, [user]);
 
+  // Load individual book balances
+  useEffect(() => {
+    const loadAllBalances = async () => {
+      if (!user || books.length === 0) return;
+      
+      const balances: Record<string, number> = {};
+      for (const book of books) {
+        const balance = await getBookBalance(book.id);
+        balances[book.id] = balance;
+      }
+      setBookBalances(balances);
+    };
+    
+    loadAllBalances();
+  }, [books, user, getBookBalance]);
+
   const topPad = 40;
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
   
@@ -801,13 +1020,13 @@ function BooksListView() {
     const sorted = [...books];
     switch (sortBy) {
       case "nameAtoZ": sorted.sort((a, b) => a.name.localeCompare(b.name)); break;
-      case "balanceHighLow": sorted.sort((a, b) => ((b as any).balance ?? 0) - ((a as any).balance ?? 0)); break;
-      case "balanceLowHigh": sorted.sort((a, b) => ((a as any).balance ?? 0) - ((b as any).balance ?? 0)); break;
+      case "balanceHighLow": sorted.sort((a, b) => (bookBalances[b.id] || 0) - (bookBalances[a.id] || 0)); break;
+      case "balanceLowHigh": sorted.sort((a, b) => (bookBalances[a.id] || 0) - (bookBalances[b.id] || 0)); break;
       case "lastCreated": sorted.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); break;
       default: sorted.sort((a, b) => ((b as any).updatedAt || b.createdAt || 0) - ((a as any).updatedAt || a.createdAt || 0)); break;
     }
     return sorted;
-  }, [books, sortBy]);
+  }, [books, sortBy, bookBalances]);
 
   const handleDeleteBook = useCallback((book: CashBook) => {
     if (book.role !== "owner") { setShowCannotDeleteModal(true); return; }
@@ -821,22 +1040,35 @@ function BooksListView() {
   const handleOpenBook = useCallback((book: CashBook) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveBook(book); }, [setActiveBook]);
   const handleIconChange = useCallback((bookId: string, icon: string) => { updateBook(bookId, { icon } as any); }, [updateBook]);
   
-  const handleLogout = useCallback(async () => {
-    setProfileModalVisible(false);
-    
-    if (typeof window !== 'undefined') {
-      localStorage.clear();
-      sessionStorage.clear();
+  const handleCreateBookPress = useCallback(() => {
+    if (!user) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      setShowSignInModal(true);
+      AsyncStorage.setItem('redirectAfterLogin', '/create-book');
+    } else {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      router.push("/create-book");
     }
-    
-    setTimeout(() => {
-      if (signOut) {
-        signOut();
-      } else {
-        router.replace("/login");
-      }
-    }, 100);
-  }, [signOut]);
+  }, [user]);
+
+  const handleSignIn = useCallback(() => {
+    setShowSignInModal(false);
+    router.push("/auth");
+  }, []);
+  
+  const handleLogout = useCallback(() => {
+  setProfileModalVisible(false);
+  
+  AsyncStorage.clear();
+  
+  if (signOut) {
+    signOut();
+  }
+  
+  // Force navigation and prevent going back
+  router.dismissAll();
+  router.replace("/auth");
+}, [signOut]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -852,7 +1084,7 @@ function BooksListView() {
         
         <View style={[styles.headerRow, { marginBottom: 20, marginTop: 0 }]}>
           <Image 
-            source={{ uri: "https://i.ibb.co/7N6mbCHp/android-icon-foreground.png" }}
+            source={{ uri: "https://i.ibb.co/b5k4pDfK/Whats-App-Image-2026-04-17-at-1-27-37-AM-removebg-preview.jpg" }}
             style={styles.headerLogo}
             resizeMode="contain"
           />
@@ -865,26 +1097,33 @@ function BooksListView() {
         
         <Text style={[styles.myBooksTitle, { color: "#000000" }]}>{t("myBooks")}</Text>
 
-        <View style={[
-          styles.balanceCard,
-          {
-            backgroundColor: isDark ? 'rgba(30, 30, 35, 0.35)' : 'rgba(255, 255, 255, 0.4)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.7)',
-          }
-        ]}>
-          <View style={[styles.glassReflection, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.3)' }]} />
-          <View style={[styles.glassHighlight, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.5)' }]} />
+        <View style={styles.balanceCard}>
+          <Image 
+            source={{ uri: "https://i.ibb.co/ZRLnt45M/DDDD-removebg-preview.png" }} 
+            style={{ 
+              position: "absolute", 
+              bottom: 0, 
+              right: 0,
+              width: 250,
+              height: 130,
+              resizeMode: "contain", 
+              opacity: 1,
+              zIndex: 1
+            }} 
+          />
           
-          <Image source={{ uri: "https://i.ibb.co/ZRLnt45M/DDDD-removebg-preview.png" }} style={{ position: "absolute", bottom: 0, width: 350, height: 160, resizeMode: "contain", marginBottom: 20, opacity: 50 }} />
-          
-          <View style={{ padding: 18, zIndex: 2 }}>
+          <View style={{ padding: 0, zIndex: 2 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ color: isDark ? "#9CA3AF" : "#374151", fontSize: 14 }}>Total Balance (All Books)</Text>
+              <Text style={{ color: "#6B7280", fontSize: 14, fontWeight: '500' }}>
+                Total Balance (All Books)
+              </Text>
               <Text style={{ fontSize: 16, color: (allBooksTotals.totalBalance || 0) >= 0 ? "#10B981" : "#EF4444" }}>
                 {(allBooksTotals.totalBalance || 0) >= 0 ? "↗" : "↘"}
               </Text>
             </View>
-            <Text style={{ color: isDark ? "#FFFFFF" : "#111827", fontSize: 32, marginTop: 6 }}>₹ {(allBooksTotals.totalBalance || 0).toLocaleString('en-IN')}</Text>
+            <Text style={{ color: "#111827", fontSize: 32, fontWeight: '700', marginTop: 8 }}>
+              ₹ {(allBooksTotals.totalBalance || 0).toLocaleString('en-IN')}
+            </Text>
           </View>
         </View>
 
@@ -895,61 +1134,122 @@ function BooksListView() {
           </View>
         ) : (
           <View style={styles.booksGrid}>
-            {sortedBooks.map((book) => (<BookCard key={book.id} book={book} theme={theme} onPress={() => handleOpenBook(book)} onLongPress={() => handleDeleteBook(book)} onIconChange={handleIconChange} />))}
+            {sortedBooks.map((book) => (
+              <BookCard 
+                key={book.id} 
+                book={book} 
+                theme={theme} 
+                onPress={() => handleOpenBook(book)} 
+                onLongPress={() => handleDeleteBook(book)} 
+                onIconChange={handleIconChange}
+                balance={bookBalances[book.id] || 0}
+              />
+            ))}
           </View>
         )}
       </ScrollView>
 
-      {/* FAB with Double Border like Book Cards */}
-{/* FAB with Blue Color & White Double Borders */}
-{/* Simpler FAB with Blue Color & White Double Borders */}
-<Pressable 
-  onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/create-book"); }} 
-  style={({ pressed }) => [styles.fabOuter, { bottom: bottomPad + 80, transform: [{ scale: pressed ? 0.93 : 1 }] }]}
->
-  <View style={styles.fabWhiteOuterBorder}>
-    <View style={styles.fabWhiteInnerBorder}>
-      <View style={styles.fabBlueBackground}>
-        <Feather name="plus" size={28} color="#FFFFFF" />
-      </View>
-    </View>
-  </View>
-</Pressable>
-
-      {/* Delete Modal */}
-      <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={handleCancelDelete}>
-        <View style={styles.modalOverlay}><View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-          <Text style={[styles.modalTitle, { color: theme.text }]}>{t("deleteBook")}</Text>
-          <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{bookToDelete ? t("deleteBookConfirm", { name: bookToDelete.name }) : ""}</Text>
-          <View style={styles.modalActions}>
-            <Pressable onPress={handleCancelDelete} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}><Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text></Pressable>
-            <Pressable onPress={handleConfirmDelete} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}><Text style={[styles.modalBtnText, { color: "#FFF" }]}>{t("delete")}</Text></Pressable>
+      <Pressable 
+        onPress={handleCreateBookPress}
+        style={({ pressed }) => [styles.fabOuter, { bottom: bottomPad + 80, transform: [{ scale: pressed ? 0.93 : 1 }] }]}
+      >
+        <View style={styles.fabWhiteOuterBorder}>
+          <View style={styles.fabWhiteInnerBorder}>
+            <View style={styles.fabBlueBackground}>
+              <Feather name="plus" size={28} color="#FFFFFF" />
+            </View>
           </View>
-        </View></View>
+        </View>
+      </Pressable>
+
+      <Modal visible={showSignInModal} transparent animationType="fade" onRequestClose={() => setShowSignInModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={[styles.profileAvatar, { backgroundColor: '#3B82F6', width: 60, height: 60, borderRadius: 30 }]}>
+                <Feather name="log-in" size={28} color="#FFFFFF" />
+              </View>
+            </View>
+            <Text style={[styles.modalTitle, { color: theme.text, textAlign: 'center' }]}>
+              Sign In Required
+            </Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary, textAlign: 'center' }]}>
+              Please sign in to create a new book and manage your finances.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable 
+                onPress={() => setShowSignInModal(false)} 
+                style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1, flex: 1 }]}
+              >
+                <Text style={[styles.modalBtnText, { color: theme.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable 
+                onPress={handleSignIn} 
+                style={({ pressed }) => [styles.modalBtn, { backgroundColor: '#3B82F6', opacity: pressed ? 0.8 : 1, flex: 1 }]}
+              >
+                <Text style={[styles.modalBtnText, { color: "#FFF" }]}>Sign In</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
 
-      {/* Cannot Delete Modal */}
+      <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={handleCancelDelete}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t("deleteBook")}</Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{bookToDelete ? t("deleteBookConfirm", { name: bookToDelete.name }) : ""}</Text>
+            <View style={styles.modalActions}>
+              <Pressable onPress={handleCancelDelete} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text>
+              </Pressable>
+              <Pressable onPress={handleConfirmDelete} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={[styles.modalBtnText, { color: "#FFF" }]}>{t("delete")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={showCannotDeleteModal} transparent animationType="fade" onRequestClose={() => setShowCannotDeleteModal(false)}>
-        <View style={styles.modalOverlay}><View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-          <Text style={[styles.modalTitle, { color: theme.text }]}>{t("cannotDelete")}</Text>
-          <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{t("onlyOwnerDelete")}</Text>
-          <View style={styles.modalActions}><Pressable onPress={() => setShowCannotDeleteModal(false)} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}><Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text></Pressable></View>
-        </View></View>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>{t("cannotDelete")}</Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{t("onlyOwnerDelete")}</Text>
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setShowCannotDeleteModal(false)} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
 
-      {/* Sort Modal */}
       <Modal visible={showSortModal} transparent animationType="slide" onRequestClose={() => setShowSortModal(false)}>
         <Pressable style={styles.sortModalOverlay} onPress={() => setShowSortModal(false)}>
           <Pressable style={[styles.sortModalContent, { backgroundColor: theme.card }]} onPress={() => {}}>
-            <View style={styles.sortModalHeader}><Text style={[styles.sortModalTitle, { color: theme.text }]}>{t("sortBooksBy")}</Text><Pressable onPress={() => setShowSortModal(false)} hitSlop={8}><Feather name="x" size={20} color={theme.textSecondary} /></Pressable></View>
-            {([{ key: "lastUpdated" as SortOption, label: t("lastUpdated"), icon: "clock" }, { key: "nameAtoZ" as SortOption, label: t("nameAtoZ"), icon: "type" }, { key: "balanceHighLow" as SortOption, label: t("netBalanceHighLow"), icon: "trending-up" }, { key: "balanceLowHigh" as SortOption, label: t("netBalanceLowHigh"), icon: "trending-down" }, { key: "lastCreated" as SortOption, label: t("lastCreated"), icon: "calendar" }]).map((opt) => (
+            <View style={styles.sortModalHeader}>
+              <Text style={[styles.sortModalTitle, { color: theme.text }]}>{t("sortBooksBy")}</Text>
+              <Pressable onPress={() => setShowSortModal(false)} hitSlop={8}>
+                <Feather name="x" size={20} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            {([{ key: "lastUpdated" as SortOption, label: t("lastUpdated"), icon: "clock" }, 
+               { key: "nameAtoZ" as SortOption, label: t("nameAtoZ"), icon: "type" }, 
+               { key: "balanceHighLow" as SortOption, label: t("netBalanceHighLow"), icon: "trending-up" }, 
+               { key: "balanceLowHigh" as SortOption, label: t("netBalanceLowHigh"), icon: "trending-down" }, 
+               { key: "lastCreated" as SortOption, label: t("lastCreated"), icon: "calendar" }]).map((opt) => (
               <Pressable key={opt.key} onPress={() => setPendingSort(opt.key)} style={({ pressed }) => [styles.sortOption, { backgroundColor: pendingSort === opt.key ? theme.tint + "12" : "transparent", borderColor: pendingSort === opt.key ? theme.tint : theme.border, opacity: pressed ? 0.7 : 1 }]}>
-                <View style={[styles.sortOptionRadio, { borderColor: pendingSort === opt.key ? theme.tint : theme.border }]}>{pendingSort === opt.key && <View style={[styles.sortOptionRadioInner, { backgroundColor: theme.tint }]} />}</View>
+                <View style={[styles.sortOptionRadio, { borderColor: pendingSort === opt.key ? theme.tint : theme.border }]}>
+                  {pendingSort === opt.key && <View style={[styles.sortOptionRadioInner, { backgroundColor: theme.tint }]} />}
+                </View>
                 <Feather name={opt.icon as any} size={16} color={pendingSort === opt.key ? theme.tint : theme.textSecondary} />
                 <Text style={[styles.sortOptionText, { color: pendingSort === opt.key ? theme.tint : theme.text }]}>{opt.label}</Text>
               </Pressable>
             ))}
-            <Pressable onPress={() => { setSortBy(pendingSort); setShowSortModal(false); Haptics.selectionAsync(); }} style={({ pressed }) => [styles.sortApplyBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.85 : 1 }]}><Text style={[styles.sortApplyBtnText]}>{t("apply")}</Text></Pressable>
+            <Pressable onPress={() => { setSortBy(pendingSort); setShowSortModal(false); Haptics.selectionAsync(); }} style={({ pressed }) => [styles.sortApplyBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.85 : 1 }]}>
+              <Text style={[styles.sortApplyBtnText]}>{t("apply")}</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -973,21 +1273,32 @@ const styles = StyleSheet.create({
   myBooksTitle: { fontSize: 34, marginBottom: 20, textAlign: "left" },
   
   balanceCard: {
-    borderRadius: 24,
-    paddingTop: 28,
-    paddingBottom: 28,
-    marginBottom: 24,
-    position: 'relative',
+    borderRadius: 22,  // Changed from 24 to match bookCardInner
+    padding: 40,       // Changed from 28 to match bookCardInner
+    gap: 12,           // Added to match bookCardInner
+    backgroundColor: '#FFFFFF',  // Changed from rgba to solid white
     overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.35)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
+    position: 'relative',
+    
+    // Borders only on right and bottom (matching bookCardInner)
+    borderRightWidth: 10,
+    borderBottomWidth: 10,
+    borderLeftWidth: 0.1,
+    borderTopWidth: 0.1,
+    borderRightColor: 'rgba(0, 0, 0, 0.1)',
+    borderTopColor: 'rgba(0, 0, 0, 0.1)',
+    borderLeftColor: 'rgba(0, 0, 0, 0.1)',
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    
+    // Shadow effects matching bookCardInner
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 12,
-  },
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    
+    marginBottom: 24,
+},
   glassReflection: {
     position: 'absolute',
     top: 0,
@@ -1006,22 +1317,15 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   summaryCard: {
-    borderRadius: 24,
-    paddingTop: 16,
-    paddingLeft: 16,
-    paddingRight: 16,
-    paddingBottom: 8,
-    marginBottom: 16,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
-  },
+  borderRadius: 24,
+  paddingTop: 16,
+  paddingLeft: 16,
+  paddingRight: 16,
+  paddingBottom: 8,
+  marginBottom: 16,
+  overflow: 'hidden',
+  backgroundColor: '#FFFFFF',  // Solid white background
+},
   
   // Profile Modal Styles
   profileModalContent: {
@@ -1071,7 +1375,7 @@ fabOuter: {
   shadowOpacity: 0.35,
   shadowRadius: 16,
   elevation: 12,
-  top: 500
+  top: 550
 },
 fabWhiteOuterBorder: {
   width: 66,
@@ -1173,29 +1477,23 @@ fabBlueBackground: {
     justifyContent: "space-between",
     alignItems: "center",
     zIndex: 2,
-  },
-  bookIcon: {
+  },bookIcon: {
     width: 48,
     height: 48,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  bookBadge: {
+    // Remove any backgroundColor
+    // Remove any shadow
+},
+
+bookBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
+    // Remove any backgroundColor
+    // Remove any shadow
+},
   bookBadgeText: {
     fontSize: 11,
     fontWeight: '600',
@@ -1241,8 +1539,8 @@ fabBlueBackground: {
     width: '100%',
   },
   headerLogo: {
-    width: 120,
-    height: 100,
+    width: 160,
+    height: 160,
     resizeMode: 'contain',
   },
   profileBtn: { 
@@ -1326,4 +1624,147 @@ fabBlueBackground: {
   sortApplyBtn: { marginTop: 8, paddingVertical: 14, borderRadius: 10, alignItems: "center" },
   sortApplyBtnText: { color: "#FFF", fontSize: 15 },
   reportImage: { width: 500, height: 80, marginTop: 50, backgroundColor: "transparent", resizeMode: "contain" },
+// Filter Button
+filterButton: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  paddingHorizontal: 20,
+  paddingVertical: 12,
+  borderRadius: 30,
+  borderWidth: 1,
+  marginHorizontal: 16,
+  marginVertical: 12,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.05,
+  shadowRadius: 4,
+  elevation: 2,
+},
+filterButtonText: {
+  fontSize: 15,
+  fontFamily: "Inter_600SemiBold",
+},
+filterBadge: {
+  fontSize: 12,
+  fontWeight: "400",
+},
+clearFilterIcon: {
+  marginLeft: 4,
+  padding: 2,
+},
+
+// Filter Modal
+filterModalOverlay: {
+  flex: 1,
+  backgroundColor: "rgba(0,0,0,0.5)",
+  justifyContent: "flex-end",
+},
+filterModalContent: {
+  borderTopLeftRadius: 24,
+  borderTopRightRadius: 24,
+  padding: 24,
+  maxHeight: "85%",
+},
+filterModalHeader: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: 24,
+},
+filterModalTitle: {
+  fontSize: 20,
+},
+filterSectionLabel: {
+  fontSize: 14,
+  marginBottom: 12,
+},
+filterOptionsRow: {
+  flexDirection: "row",
+  gap: 12,
+  marginBottom: 8,
+},
+filterOption: {
+  flex: 1,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  paddingVertical: 12,
+  paddingHorizontal: 12,
+  borderRadius: 12,
+  borderWidth: 1,
+},
+filterOptionText: {
+  fontSize: 14,
+  fontFamily: "Inter_500Medium",
+},
+filterOptionsGrid: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  gap: 10,
+  marginBottom: 8,
+},
+filterOptionGrid: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 8,
+  paddingVertical: 10,
+  paddingHorizontal: 14,
+  borderRadius: 10,
+  borderWidth: 1,
+  minWidth: "30%",
+},
+filterOptionGridText: {
+  fontSize: 13,
+  fontFamily: "Inter_500Medium",
+},
+activeFiltersSummary: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 8,
+  padding: 12,
+  borderRadius: 10,
+  borderWidth: 1,
+  marginTop: 20,
+  marginBottom: 8,
+},
+activeFiltersText: {
+  fontSize: 12,
+  flex: 1,
+},
+filterModalActions: {
+  flexDirection: "row",
+  gap: 12,
+  marginTop: 24,
+  marginBottom: 8,
+},
+filterResetBtn: {
+  flex: 1,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  paddingVertical: 14,
+  borderRadius: 12,
+  borderWidth: 1,
+},
+filterResetText: {
+  fontSize: 15,
+  fontFamily: "Inter_600SemiBold",
+},
+filterApplyBtn: {
+  flex: 2,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  paddingVertical: 14,
+  borderRadius: 12,
+},
+filterApplyText: {
+  fontSize: 15,
+  fontFamily: "Inter_600SemiBold",
+},
 });

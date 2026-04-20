@@ -130,8 +130,7 @@ export default function InvoicesScreen() {
         style={[
           styles.headerWhite,
           {
-            marginTop: 16,
-            backgroundColor: "#FFFFFF",
+            marginTop: insets.top + 40,
           },
         ]}
       >
@@ -479,17 +478,6 @@ export default function InvoicesScreen() {
             >
               {isAr ? "لا توجد فواتير" : "No invoices found"}
             </Text>
-            <Pressable
-              onPress={handleAddInvoice}
-              style={({ pressed }) => [
-                styles.emptyBtn,
-                { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 },
-              ]}
-            >
-              <Text style={[styles.emptyBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>
-                {isAr ? "إضافة فاتورة" : "Add Invoice"}
-              </Text>
-            </Pressable>
           </View>
         }
         ItemSeparatorComponent={() => (
@@ -548,6 +536,7 @@ export default function InvoicesScreen() {
 }
 
 // Invoice Card Component (same as before)
+// Invoice Card Component (with Edit and Delete buttons)
 function InvoiceCard({
   invoice,
   theme,
@@ -601,7 +590,6 @@ function InvoiceCard({
   return (
     <Pressable
       onPress={onEdit}
-      onLongPress={() => onDelete(invoice)}
       style={({ pressed }) => [
         styles.invoiceCard,
         { opacity: pressed ? 0.8 : 1 },
@@ -640,6 +628,37 @@ function InvoiceCard({
         >
           {invoice.customer}
         </Text>
+        
+        {/* Action Buttons - Edit (Grey) & Delete (Red) */}
+        <View style={styles.actionButtons}>
+          <Pressable
+            onPress={onEdit}
+            style={({ pressed }) => [
+              styles.actionBtn,
+              styles.editBtn,
+              { opacity: pressed ? 0.7 : 1 }
+            ]}
+          >
+            <Feather name="edit-2" size={14} color="#6B7280" />
+            <Text style={[styles.actionBtnText, { color: "#6B7280" }]}>
+              {isAr ? "تعديل" : "Edit"}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onDelete(invoice)}
+            style={({ pressed }) => [
+              styles.actionBtn,
+              styles.deleteBtn,
+              { opacity: pressed ? 0.7 : 1 }
+            ]}
+          >
+            <Feather name="trash-2" size={14} color="#EF4444" />
+            <Text style={[styles.actionBtnText, { color: "#EF4444" }]}>
+              {isAr ? "حذف" : "Delete"}
+            </Text>
+          </Pressable>
+        </View>
+
         <View style={styles.invoiceBottomRow}>
           {invoice.dueDate ? (
             <View style={styles.dueDateRow}>
@@ -672,9 +691,31 @@ function InvoiceCard({
     </Pressable>
   );
 }
-
 const styles = StyleSheet.create({
-  // ... all your existing styles (keep them exactly as they are)
+  actionButtons: {
+  flexDirection: "row",
+  justifyContent: "flex-end",
+  gap: 12,
+  marginBottom: 8,
+},
+actionBtn: {
+  flexDirection: "row",
+  alignItems: "center",
+  gap: 4,
+  paddingHorizontal: 10,
+  paddingVertical: 5,
+  borderRadius: 6,
+},
+editBtn: {
+  backgroundColor: "#F3F4F6",
+},
+deleteBtn: {
+  backgroundColor: "#FEE2E2",
+},
+actionBtnText: {
+  fontSize: 11,
+  fontFamily: "Inter_500Medium",
+},
   container: { flex: 1 },
   headerWhite: {
     flexDirection: "row",
@@ -682,7 +723,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingBottom: 16,
-    backgroundColor: "#FFFFFF",
   },
   titleBlack: {
     fontSize: 28,
@@ -776,6 +816,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     paddingHorizontal: 20,
     paddingBottom: 16,
+    marginBottom: -8,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   title: { fontSize: 28 },
@@ -799,7 +840,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,
-    marginTop: 4,
+    marginBottom: 200,
   },
   emptyBtnTxt: { color: "#FFF", fontSize: 15 },
   subheading: { fontSize: 13, marginBottom: 10, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.5 },

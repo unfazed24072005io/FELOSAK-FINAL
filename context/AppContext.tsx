@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { useAuth } from "./AuthContext";
 import { db } from "@/config/firebase";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   collection,
   addDoc,
@@ -129,7 +130,7 @@ interface AppContextValue {
   addProduct: (p: Omit<Product, "id" | "createdAt" | "userId" | "bookId">) => Promise<void>;
   updateProduct: (id: string, p: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
-  setPin: (pin: string | null) => void;
+  setPin: (pin: string | null) => Promise<void>;
   unlock: (pin: string) => boolean;
   lock: () => void;
   totalBalance: number;
@@ -159,11 +160,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [totalExpenseAllBooks, setTotalExpenseAllBooks] = useState(0);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
 
-  // Load PIN from localStorage
+  // Load PIN from AsyncStorage
   useEffect(() => {
     (async () => {
       try {
-        const pinRaw = localStorage.getItem(PIN_KEY);
+        const pinRaw = await AsyncStorage.getItem(PIN_KEY);
         if (pinRaw) {
           setPinState(pinRaw);
           setIsLocked(true);
@@ -380,10 +381,10 @@ useEffect(() => {
     setActiveBookState(book);
     
     if (book) {
-      localStorage.setItem('lastActiveBookId', book.id);
+      AsyncStorage.setItem('lastActiveBookId', book.id);
       loadBookData(book);
     } else {
-      localStorage.removeItem('lastActiveBookId');
+      AsyncStorage.removeItem('lastActiveBookId');
       setTransactions([]);
       setDebts([]);
       setProducts([]);
@@ -420,7 +421,7 @@ useEffect(() => {
       setBooks(loadedBooks);
       
       if (loadedBooks.length > 0) {
-        const lastActiveBookId = localStorage.getItem('lastActiveBookId');
+        const lastActiveBookId = await AsyncStorage.getItem('lastActiveBookId');
         const bookToActivate = lastActiveBookId 
           ? loadedBooks.find(b => b.id === lastActiveBookId) 
           : loadedBooks[0];
@@ -674,9 +675,9 @@ useEffect(() => {
   const setPin = useCallback(async (newPin: string | null) => {
     setPinState(newPin);
     if (newPin) {
-      localStorage.setItem(PIN_KEY, newPin);
+      await AsyncStorage.setItem(PIN_KEY, newPin);
     } else {
-      localStorage.removeItem(PIN_KEY);
+      await AsyncStorage.removeItem(PIN_KEY);
     }
   }, []);
 

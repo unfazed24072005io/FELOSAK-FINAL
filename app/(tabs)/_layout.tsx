@@ -28,9 +28,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: "checkmark.shield", selected: "checkmark.shield.fill" }} />
         <Label>{t("compliance") || "Compliance"}</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="store">
+      <NativeTabs.Trigger name="inventory">
         <Icon sf={{ default: "storefront", selected: "storefront.fill" }} />
-        <Label>{t("store")}</Label>
+        <Label>{t("Inventory")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="analytics">
         <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
@@ -134,7 +134,7 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="store"
         options={{
-          title: t("store"),
+          title: t("inventory"),
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="shopping-bag" size={size} color={color} />;

@@ -140,14 +140,14 @@ export default function StoreScreen() {
           style={[
             styles.header,
             {
-              paddingTop: topPad + 8,
+              marginTop: insets.top + 40,
               borderBottomColor: theme.border,
               backgroundColor: theme.background,
             },
           ]}
         >
           <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-            {t("store")}
+            {t("inventory")}
           </Text>
         </View>
         <View style={styles.emptyContent}>
@@ -173,7 +173,7 @@ export default function StoreScreen() {
         ]}
       >
         <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-          {t("store")}
+          {t("inventory")}
         </Text>
         {activeBook.isCloud && (
           <Pressable
