@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import {
   Alert,
   Image,
@@ -20,7 +20,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useApp, Product } from "@/context/AppContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
-import { parseAmount } from "@/utils/format";
+import { parseAmount, getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
 
 export default function AddProductScreen() {
   const insets = useSafeAreaInsets();
@@ -39,36 +39,57 @@ export default function AddProductScreen() {
   const [name, setName] = useState(editProduct?.name ?? "");
   const [description, setDescription] = useState(editProduct?.description ?? "");
   const [price, setPrice] = useState(editProduct ? String(editProduct.price) : "");
+  const [costPrice, setCostPrice] = useState(editProduct?.costPrice ? String(editProduct.costPrice) : "");
+  const [quantity, setQuantity] = useState(editProduct?.quantity ? String(editProduct.quantity) : "0");
   const [category, setCategory] = useState(editProduct?.category ?? "");
   const [image, setImage] = useState(editProduct?.image ?? "");
   const [inStock, setInStock] = useState(editProduct?.inStock ?? true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showImagePreview, setShowImagePreview] = useState(false);
+const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+const currencyCode = getCurrencyCode();
+const currencySymbol = getCurrencySymbol();
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing add-product screen");
+    setCurrencyRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
   const parsedPrice = useMemo(() => parseAmount(price), [price]);
+  const parsedCostPrice = useMemo(() => parseAmount(costPrice), [costPrice]);
+  const parsedQuantity = useMemo(() => parseInt(quantity) || 0, [quantity]);
+  
+  const totalStockValue = useMemo(() => {
+    return (parsedQuantity || 0) * (parsedCostPrice || parsedPrice || 0);
+  }, [parsedQuantity, parsedCostPrice, parsedPrice]);
+
   const isValid = useMemo(
-    () => name.trim().length > 0 && parsedPrice !== null && parsedPrice > 0,
-    [name, parsedPrice]
-  );
+  () => name.trim().length > 0 && parsedCostPrice !== null && parsedCostPrice > 0,
+  [name, parsedCostPrice]
+);
 
   const handleSave = useCallback(() => {
-    if (!isValid || parsedPrice === null) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const data = {
-      name: name.trim(),
-      description: description.trim(),
-      price: parsedPrice,
-      category: category.trim(),
-      image,
-      inStock,
-    };
-    if (editProduct) {
-      updateProduct(editProduct.id, data);
-    } else {
-      addProduct(data);
-    }
-    router.back();
-  }, [isValid, parsedPrice, name, description, category, image, inStock, editProduct, addProduct, updateProduct]);
+  if (!isValid || parsedCostPrice === null) return;
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const data = {
+    name: name.trim(),
+    description: description.trim(),
+    price: parsedCostPrice, // Use costPrice as price
+    costPrice: parsedCostPrice,
+    quantity: parsedQuantity,
+    category: category.trim(),
+    image,
+    inStock: parsedQuantity > 0 || inStock,
+  };
+  if (editProduct) {
+    updateProduct(editProduct.id, data);
+  } else {
+    addProduct(data);
+  }
+  router.back();
+}, [isValid, parsedCostPrice, parsedQuantity, name, description, category, image, inStock, editProduct, addProduct, updateProduct]);
 
   const handleConfirmDelete = useCallback(() => {
     if (!editProduct) return;
@@ -123,11 +144,22 @@ export default function AddProductScreen() {
     Haptics.selectionAsync();
   }, []);
 
+  const updateQuantity = (change: number) => {
+    const newQuantity = Math.max(0, parsedQuantity + change);
+    setQuantity(String(newQuantity));
+    if (newQuantity === 0) {
+      setInStock(false);
+    } else {
+      setInStock(true);
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View key={currencyRefreshKey} style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <Pressable onPress={() => router.back()} accessibilityLabel="Back" accessibilityRole="button">
           <Feather name="arrow-left" size={22} color={theme.textSecondary} />
@@ -207,25 +239,78 @@ export default function AddProductScreen() {
           </View>
         </View>
 
+        
+        <View style={styles.section}>
+  <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+    Cost Price (per unit) - Optional ({currencyCode})
+  </Text>
+  <View style={[styles.amountRow, { backgroundColor: theme.card, borderColor: theme.border }]}>
+    <Text style={[styles.egpSymbol, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+      {currencySymbol}
+    </Text>
+    <TextInput
+      style={[styles.amountInput, { color: theme.text, fontFamily: "Inter_700Bold" }]}
+      value={costPrice}
+      onChangeText={setCostPrice}
+      placeholder="0.00"
+      placeholderTextColor={theme.textSecondary + "88"}
+      keyboardType="decimal-pad"
+      returnKeyType="done"
+    />
+  </View>
+</View>
+
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {t("priceEgp")} *
+            Quantity
           </Text>
-          <View style={[styles.amountRow, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.egpSymbol, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-              ج.م
-            </Text>
+          <View style={[styles.quantityContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Pressable
+              onPress={() => updateQuantity(-1)}
+              style={({ pressed }) => [
+                styles.quantityButton,
+                { backgroundColor: theme.expense + '20', opacity: pressed ? 0.7 : 1 }
+              ]}
+            >
+              <Feather name="minus" size={20} color={theme.expense} />
+            </Pressable>
             <TextInput
-              style={[styles.amountInput, { color: theme.text, fontFamily: "Inter_700Bold" }]}
-              value={price}
-              onChangeText={setPrice}
-              placeholder="0.00"
-              placeholderTextColor={theme.textSecondary + "88"}
-              keyboardType="decimal-pad"
-              returnKeyType="done"
+              style={[styles.quantityInput, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
+              value={quantity}
+              onChangeText={(text) => {
+                const num = parseInt(text) || 0;
+                setQuantity(String(Math.max(0, num)));
+                if (num === 0) {
+                  setInStock(false);
+                } else {
+                  setInStock(true);
+                }
+              }}
+              keyboardType="number-pad"
+              textAlign="center"
             />
+            <Pressable
+              onPress={() => updateQuantity(1)}
+              style={({ pressed }) => [
+                styles.quantityButton,
+                { backgroundColor: theme.income + '20', opacity: pressed ? 0.7 : 1 }
+              ]}
+            >
+              <Feather name="plus" size={20} color={theme.income} />
+            </Pressable>
           </View>
         </View>
+
+        {parsedQuantity > 0 && (parsedCostPrice || parsedPrice) && (
+  <View key={`total-${currencyRefreshKey}`} style={[styles.totalCostCard, { backgroundColor: theme.surface }]}>
+    <Text style={[styles.totalCostLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+      Total Stock Value:
+    </Text>
+    <Text style={[styles.totalCostValue, { color: theme.tint, fontFamily: "Inter_700Bold" }]}>
+      {currencyCode} {totalStockValue.toLocaleString()}
+    </Text>
+  </View>
+)}
 
         <View style={styles.section}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
@@ -438,6 +523,45 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 32,
     paddingVertical: 12,
+  },
+  quantityContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 12,
+  },
+  quantityButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quantityInput: {
+    flex: 1,
+    fontSize: 20,
+    paddingVertical: 8,
+    fontFamily: "Inter_600SemiBold",
+  },
+  totalCostCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 16,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  totalCostLabel: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+  },
+  totalCostValue: {
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
   },
   attachmentPreview: {
     flexDirection: "row",

@@ -1,103 +1,124 @@
-export function formatEGP(amount: number): string {
-  const abs = Math.abs(amount);
-  const formatted = abs.toLocaleString("en-EG", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return `${amount < 0 ? "-" : ""}${formatted} ج.م`;
-}
+// utils/format.ts
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export function formatEGPShort(amount: number): string {
-  const abs = Math.abs(amount);
-  let formatted: string;
-  if (abs >= 1_000_000) {
-    formatted = (abs / 1_000_000).toFixed(1) + "M";
-  } else if (abs >= 1_000) {
-    formatted = (abs / 1_000).toFixed(1) + "K";
-  } else {
-    formatted = abs.toLocaleString("en-EG", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-  return `${amount < 0 ? "-" : ""}${formatted} ج.م`;
-}
+let cachedCurrency = "EGP";
+let cachedSymbol = "E£";
+let listeners: Array<() => void> = [];
 
-export function formatDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("ar-EG", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-export function formatDateShort(dateStr: string): string {
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("en-EG", {
-    day: "2-digit",
-    month: "short",
-  });
-}
-
-export function today(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
-const ARABIC_DIGITS: Record<string, string> = {
-  "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
-  "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+const currencyMap: Record<string, { code: string; symbol: string }> = {
+  EG: { code: "EGP", symbol: "E£" },
+  AE: { code: "AED", symbol: "د.إ" },
+  SA: { code: "SAR", symbol: "﷼" },
+  KW: { code: "KWD", symbol: "KD" },
+  QA: { code: "QAR", symbol: "﷼" },
+  OM: { code: "OMR", symbol: "﷼" },
+  BH: { code: "BHD", symbol: ".د.ب" },
 };
 
-export function normalizeAmountInput(raw: string): string {
-  let s = raw;
-  s = s.replace(/[٠-٩]/g, (ch) => ARABIC_DIGITS[ch] || ch);
-  s = s.replace(/٫/g, ".");
-  s = s.replace(/،/g, ",");
-  const parts = s.split(".");
-  if (parts.length <= 2) {
-    s = parts.map((p) => p.replace(/,/g, "")).join(".");
-  } else {
-    s = s.replace(/,/g, "");
+export async function loadCurrency() {
+  try {
+    const region = await AsyncStorage.getItem("user_selected_region");
+    const currencyData = currencyMap[region || "EG"] || currencyMap.EG;
+    
+    const changed = cachedCurrency !== currencyData.code || cachedSymbol !== currencyData.symbol;
+    
+    cachedCurrency = currencyData.code;
+    cachedSymbol = currencyData.symbol;
+    
+    if (changed) {
+      console.log(`Currency updated to: ${cachedCurrency} (${cachedSymbol})`);
+      listeners.forEach(listener => listener());
+    }
+  } catch (error) {
+    console.error("Error loading currency:", error);
   }
-  return s;
 }
-
-export function parseAmount(raw: string): number | null {
-  const normalized = normalizeAmountInput(raw);
-  if (!normalized || normalized.trim() === "") return null;
-  const num = parseFloat(normalized);
-  if (isNaN(num) || num <= 0) return null;
-  return Math.round(num * 100) / 100;
+export function parseAmount(value: string): number | null {
+  const cleaned = value.replace(/[^0-9.-]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
 }
 
 export function isValidDateStr(dateStr: string): boolean {
-  if (!dateStr) return false;
-  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return false;
-  const d = new Date(dateStr);
-  return !isNaN(d.getTime());
+  if (!dateStr || dateStr.length !== 10) return false;
+  const regex = /^(\d{4})-(\d{2})-(\d{2})$/;
+  if (!regex.test(dateStr)) return false;
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+const currencyListeners: Array<() => void> = [];
+
+export function subscribeToCurrencyChanges(listener: () => void): () => void {
+  currencyListeners.push(listener);
+  return () => {
+    const index = currencyListeners.indexOf(listener);
+    if (index > -1) currencyListeners.splice(index, 1);
+  };
 }
 
-export function formatDateGroup(dateStr: string): string {
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("en-US", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
+export function notifyCurrencyChange() {
+  currencyListeners.forEach(listener => listener());
+}
+export function today(): string {
+  return new Date().toISOString().split('T')[0];
+}
+// Call this from SettingsScreen when region changes
+export async function updateCurrencyFromRegion(regionCode: string) {
+  const currencyData = currencyMap[regionCode] || currencyMap.EG;
+  cachedCurrency = currencyData.code;
+  cachedSymbol = currencyData.symbol;
+  
+  console.log(`Currency manually updated to: ${cachedCurrency} (${cachedSymbol})`);
+  
+  // Notify all components to re-render
+  listeners.forEach(listener => listener());
+  
+  // Also ensure AsyncStorage is updated
+  await AsyncStorage.setItem("user_selected_region", regionCode);
+}
+
+
+export function getCurrencySymbol() {
+  return cachedSymbol;
+}
+
+export function getCurrencyCode() {
+  return cachedCurrency;
+}
+
+export function formatEGP(amount: number): string {
+  return `${cachedSymbol} ${amount.toLocaleString('en-EG')}`;
+}
+
+export function formatEGPShort(amount: number): string {
+  if (amount >= 1000000) {
+    return `${cachedSymbol} ${(amount / 1000000).toFixed(1)}M`;
+  }
+  if (amount >= 1000) {
+    return `${cachedSymbol} ${(amount / 1000).toFixed(0)}K`;
+  }
+  return `${cachedSymbol} ${amount.toLocaleString('en-EG')}`;
+}
+
+export function formatDate(timestamp: number): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return date.toLocaleDateString('en-EG', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
   });
 }
 
 export function formatTime(timestamp: number): string {
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return "";
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const ampm = h >= 12 ? "pm" : "am";
-  const hour = h % 12 || 12;
-  const min = m < 10 ? `0${m}` : m;
-  return `${hour}:${min} ${ampm}`;
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString('en-EG', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
+
+// Initial load
+loadCurrency();

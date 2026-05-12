@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
 import {
   Linking,
   Platform,
@@ -44,7 +45,16 @@ export default function SubscriptionScreen() {
 
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
   const [selectedPlan, setSelectedPlan] = useState("business");
+const [refreshKey, setRefreshKey] = useState(0);
+const currencyCode = getCurrencyCode();
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing subscription screen");
+    setRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
@@ -57,19 +67,20 @@ export default function SubscriptionScreen() {
   const formatDate = (d: Date) =>
     `${d.getDate()} ${d.toLocaleString("en", { month: "short" })} ${d.getFullYear()}`;
 
-  const currency = "EGP";
+  const currency = getCurrencyCode();
 
   const handleSubscribe = () => {
-    const plan = PLANS.find((p) => p.id === selectedPlan);
-    if (plan?.id === "enterprise") {
-      Linking.openURL("mailto:support@feloosak.com?subject=Enterprise%20Plan%20Inquiry");
-      return;
-    }
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
+  const plan = PLANS.find((p) => p.id === selectedPlan);
+  if (plan?.id === "enterprise") {
+    Linking.openURL("mailto:support@feloosak.com?subject=Enterprise%20Plan%20Inquiry");
+    return;
+  }
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  Alert.alert("Coming Soon", `Subscription with ${currency} will be available soon.`);
+};
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View key={refreshKey} style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
         <Pressable onPress={() => router.back()} hitSlop={8}>
           <Feather name="arrow-left" size={22} color={theme.text} />

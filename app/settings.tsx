@@ -1,4 +1,5 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useEffect } from "react";
+import { loadCurrency, updateCurrencyFromRegion } from '@/utils/format';
 import {
   Alert,
   Modal,
@@ -10,6 +11,7 @@ import {
   TextInput,
   View,
   useColorScheme,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
@@ -19,6 +21,10 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const STORAGE_KEY = "user_profile_data";
+const REGION_STORAGE_KEY = "user_selected_region";
 
 const MODAL_BG = "#0A1F15";
 const MODAL_GOLD = "#C9A84C";
@@ -38,9 +44,74 @@ export default function SettingsScreen() {
   const [error, setError] = useState("");
   const [showRemovePinModal, setShowRemovePinModal] = useState(false);
   const [showSignOutModal, setShowSignOutModal] = useState(false);
+  const [showRegionModal, setShowRegionModal] = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState("Egypt");
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState("");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  // Load saved region on mount
+  useEffect(() => {
+    const loadSavedRegion = async () => {
+      try {
+        const savedRegionCode = await AsyncStorage.getItem(REGION_STORAGE_KEY);
+        if (savedRegionCode) {
+          const regionName = getRegionName(savedRegionCode);
+          setSelectedRegion(regionName);
+        }
+      } catch (error) {
+        console.error("Error loading region:", error);
+      }
+    };
+    loadSavedRegion();
+  }, []);
+
+  // Load profile data when component mounts
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user) return;
+      try {
+        const userId = user.id;
+        const savedData = await AsyncStorage.getItem(`${STORAGE_KEY}_${userId}`);
+        if (savedData) {
+          const profile = JSON.parse(savedData);
+          setProfilePhoto(profile.photo || null);
+          setProfileName(profile.name || "");
+        }
+      } catch (error) {
+        console.error("Error loading profile:", error);
+      }
+    };
+    loadProfile();
+  }, [user]);
+
+  const getRegionCode = (regionName: string): string => {
+    const map: Record<string, string> = {
+      "Egypt": "EG",
+      "UAE": "AE",
+      "Saudi Arabia": "SA",
+      "Kuwait": "KW",
+      "Qatar": "QA",
+      "Oman": "OM",
+      "Bahrain": "BH"
+    };
+    return map[regionName] || "EG";
+  };
+
+  const getRegionName = (regionCode: string): string => {
+    const map: Record<string, string> = {
+      "EG": "Egypt",
+      "AE": "UAE",
+      "SA": "Saudi Arabia",
+      "KW": "Kuwait",
+      "QA": "Qatar",
+      "OM": "Oman",
+      "BH": "Bahrain"
+    };
+    return map[regionCode] || "Egypt";
+  };
 
   const handleSetPin = useCallback(() => {
     if (step === "idle") {
@@ -91,6 +162,11 @@ export default function SettingsScreen() {
     router.back();
   }, [logout]);
 
+  const handleNavigate = (route: string) => {
+    Haptics.selectionAsync();
+    router.push(route as any);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View
@@ -120,26 +196,34 @@ export default function SettingsScreen() {
           { paddingBottom: bottomPad + 40 },
         ]}
       >
+        {/* User Profile Card */}
         {user && (
-          <View style={[styles.profileCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={[styles.profileAvatar, { backgroundColor: theme.tint + "22" }]}>
-              <Feather name="user" size={24} color={theme.tint} />
-            </View>
+          <Pressable
+            style={[styles.profileCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={() => router.push("/account")}
+          >
+            {profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.profileAvatarImage} />
+            ) : (
+              <View style={[styles.profileAvatar, { backgroundColor: theme.tint + "22" }]}>
+                <Feather name="user" size={24} color={theme.tint} />
+              </View>
+            )}
             <View style={styles.profileInfo}>
               <Text style={[styles.profileName, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                {user.displayName}
+                {profileName || user?.displayName || user?.email?.split('@')[0] || "User"}
               </Text>
               <Text style={[styles.profileEmail, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                {user.username}
+                {user?.email || "user@example.com"}
+              </Text>
+              <Text style={[styles.userCountry, { color: '#3B82F6', fontFamily: "Inter_500Medium" }]}>
+                {selectedRegion}
               </Text>
             </View>
-            <Pressable
-              onPress={() => router.push("/account")}
-              hitSlop={8}
-            >
+            <Pressable onPress={() => router.push("/account")} hitSlop={8}>
               <Feather name="edit-2" size={16} color={theme.tint} />
             </Pressable>
-          </View>
+          </Pressable>
         )}
 
         {activeBook?.isCloud && (
@@ -173,11 +257,52 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* General Settings Section */}
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {t("generalSettings")}
+            General
           </Text>
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <SettingsRow
+              icon="map-pin"
+              title="Region"
+              subtitle={selectedRegion}
+              theme={theme}
+              badge={selectedRegion === "Egypt" ? "EG" : selectedRegion === "UAE" ? "AE" : selectedRegion === "Saudi Arabia" ? "SA" : selectedRegion === "Kuwait" ? "KW" : selectedRegion === "Qatar" ? "QA" : selectedRegion === "Oman" ? "OM" : "BH"}
+              badgeColor={theme.tint}
+              onPress={() => setShowRegionModal(true)}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
+              icon="shield"
+              title="Tax Compliance"
+              subtitle="Tax rates & requirements"
+              theme={theme}
+              onPress={() => handleNavigate("/compliance")}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
+              icon="bar-chart-2"
+              title="Analytics"
+              subtitle="Business insights"
+              theme={theme}
+              onPress={() => handleNavigate("/analytics")}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
+              icon="globe"
+              title={t("language")}
+              subtitle={language === "en" ? "English" : "العربية"}
+              theme={theme}
+              badge={language.toUpperCase()}
+              badgeColor={theme.tint}
+              onPress={() => {
+                const next = language === "en" ? "ar" : "en";
+                setLanguage(next as any);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <SettingsRow
               icon="lock"
               title={t("security")}
@@ -200,12 +325,9 @@ export default function SettingsScreen() {
                 }
               }}
             />
-
             {step !== "idle" && (
               <View style={styles.pinSetupBox}>
-                <Text
-                  style={[styles.pinPrompt, { color: theme.text, fontFamily: "Inter_500Medium" }]}
-                >
+                <Text style={[styles.pinPrompt, { color: theme.text, fontFamily: "Inter_500Medium" }]}>
                   {step === "enter" ? t("enterNewPin") : t("confirmYourPin")}
                 </Text>
                 <TextInput
@@ -258,38 +380,37 @@ export default function SettingsScreen() {
                 </View>
               </View>
             )}
-
-            <View style={[styles.divider, { backgroundColor: theme.border }]} />
-            {!user ? (
-              <SettingsRow
-                icon="user"
-                title={t("yourProfile")}
-                subtitle={t("signIn")}
-                theme={theme}
-                onPress={() => router.push("/auth")}
-              />
-            ) : (
-              <SettingsRow
-                icon="user"
-                title={t("yourProfile")}
-                subtitle={user.displayName}
-                theme={theme}
-                onPress={() => router.push("/account")}
-              />
-            )}
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <SettingsRow
-              icon="globe"
-              title={t("language")}
-              subtitle={language === "en" ? "English" : "العربية"}
+              icon="lock"
+              title="Privacy Policy"
+              subtitle="Data protection & privacy"
               theme={theme}
-              badge={language.toUpperCase()}
-              badgeColor={theme.tint}
-              onPress={() => {
-                const next = language === "en" ? "ar" : "en";
-                setLanguage(next as any);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }}
+              onPress={() => handleNavigate("/privacy-policy")}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
+              icon="file-text"
+              title="Legal Notices"
+              subtitle="Disclaimer & liability"
+              theme={theme}
+              onPress={() => handleNavigate("/legal-notices")}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
+              icon="help-circle"
+              title="FAQ"
+              subtitle="Frequently asked questions"
+              theme={theme}
+              onPress={() => handleNavigate("/faq")}
+            />
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+            <SettingsRow
+              icon="headphones"
+              title="Help & Support"
+              subtitle="Contact us & support tickets"
+              theme={theme}
+              onPress={() => handleNavigate("/help-support")}
             />
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <SettingsRow
@@ -346,6 +467,40 @@ export default function SettingsScreen() {
         )}
       </ScrollView>
 
+      {/* Region Modal */}
+      <Modal visible={showRegionModal} transparent animationType="slide" onRequestClose={() => setShowRegionModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainerLight, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitleLight, { color: theme.text, fontFamily: "Inter_700Bold" }]}>Select Region</Text>
+            {["Egypt", "UAE", "Saudi Arabia", "Kuwait", "Qatar", "Oman", "Bahrain"].map((region) => (
+              <Pressable
+                key={region}
+                onPress={async () => {
+  const regionCode = getRegionCode(region);
+  setSelectedRegion(region);
+  // CRITICAL: Use updateCurrencyFromRegion instead of loadCurrency
+  await updateCurrencyFromRegion(regionCode);
+  setShowRegionModal(false);
+  Haptics.selectionAsync();
+  const { getCurrencyCode, getCurrencySymbol } = require('@/utils/format');
+  Alert.alert("Region Changed", `${region} selected.\nCurrency updated to: ${getCurrencyCode()} (${getCurrencySymbol()})`);
+}}
+                style={[styles.modalOptionLight, { borderColor: theme.border, backgroundColor: selectedRegion === region ? theme.tint + '20' : 'transparent' }]}
+              >
+                <Text style={[styles.modalOptionTextLight, { color: selectedRegion === region ? theme.tint : theme.text }]}>
+                  {region}
+                </Text>
+                {selectedRegion === region && <Feather name="check" size={18} color={theme.tint} />}
+              </Pressable>
+            ))}
+            <Pressable onPress={() => setShowRegionModal(false)} style={[styles.closeBtn, { backgroundColor: theme.tint }]}>
+              <Text style={[styles.closeBtnText, { color: "#FFF" }]}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Remove Pin Modal */}
       <Modal
         visible={showRemovePinModal}
         transparent
@@ -374,6 +529,7 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
+      {/* Sign Out Modal */}
       <Modal
         visible={showSignOutModal}
         transparent
@@ -480,9 +636,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  profileAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    resizeMode: "cover",
+  },
   profileInfo: { flex: 1 },
   profileName: { fontSize: 16 },
   profileEmail: { fontSize: 13, marginTop: 2 },
+  userCountry: { fontSize: 12, marginTop: 2 },
 
   section: { marginBottom: 20 },
   sectionLabel: {
@@ -593,11 +756,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: MODAL_GOLD + "33",
   },
+  modalContainerLight: {
+    width: "100%",
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+    gap: 12,
+  },
   modalTitle: {
     fontSize: 18,
     fontFamily: "Inter_600SemiBold",
     color: MODAL_GOLD,
     marginBottom: 8,
+    textAlign: "center",
+  },
+  modalTitleLight: {
+    fontSize: 20,
+    marginBottom: 16,
     textAlign: "center",
   },
   modalMessage: {
@@ -636,5 +811,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",
     color: MODAL_BG,
+  },
+  modalOptionLight: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  modalOptionTextLight: {
+    fontSize: 16,
+    fontFamily: "Inter_500Medium",
+  },
+  closeBtn: {
+    marginTop: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  closeBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
   },
 });

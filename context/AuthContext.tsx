@@ -1,3 +1,5 @@
+// context/AuthContext.tsx
+
 import React, { createContext, useCallback, useContext, useState, useEffect } from "react";
 import { 
   createUserWithEmailAndPassword, 
@@ -9,6 +11,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, getDoc, Timestamp } from "firebase/firestore";
 import { auth, db } from "@/config/firebase";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface AuthUser {
   id: string;
@@ -93,11 +96,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email,
     });
   }, []);
-
+const deleteAccount = useCallback(async () => {
+  if (!user) return;
+  try {
+    // Delete user data from Firestore
+    const userRef = doc(db, 'users', user.uid);
+    await deleteDoc(userRef);
+    
+    // Delete authentication account
+    await user.delete();
+    
+    // Clear local storage
+    await AsyncStorage.clear();
+    
+    // Redirect to auth screen
+    router.replace("/auth");
+  } catch (error) {
+    console.error("Error deleting account:", error);
+    Alert.alert("Error", "Failed to delete account. Please try again.");
+  }
+}, [user]);
+  // FIXED: Removed localStorage, using AsyncStorage
   const logout = useCallback(async () => {
+  try {
     await signOut(auth);
     setUser(null);
-  }, []);
+    // REMOVE THIS LINE - DO NOT clear AsyncStorage on logout
+    // await AsyncStorage.clear();
+  } catch (error) {
+    console.error('Logout error:', error);
+    throw error;
+  }
+}, []);
 
   return (
     <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>

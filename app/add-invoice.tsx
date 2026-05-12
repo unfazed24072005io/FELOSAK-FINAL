@@ -15,6 +15,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp } from "@/context/AppContext";
+import { getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 
@@ -37,7 +38,19 @@ export default function AddInvoiceScreen() {
   const [status, setStatus] = useState<InvoiceStatus>("draft");
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
+const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+const currencyCode = getCurrencyCode();
+const currencySymbol = getCurrencySymbol();
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing add-invoice screen");
+    setCurrencyRefreshKey(prev => prev + 1);
+    // Update the currency variables
+    // Note: getCurrencyCode() and getCurrencySymbol() will return updated values on next render
+  });
+  return unsubscribe;
+}, []);
   const topPad = insets.top + (Platform.OS === "web" ? 20 : 10);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 20 : 10);
 
@@ -80,7 +93,7 @@ export default function AddInvoiceScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View key={currencyRefreshKey} style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View
         style={[
@@ -151,23 +164,27 @@ export default function AddInvoiceScreen() {
         {/* Amount */}
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {isAr ? "المبلغ" : "Amount"} *
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                color: theme.text,
-              },
-            ]}
-            placeholder="0.00"
-            placeholderTextColor={theme.textSecondary}
-            value={amount}
-            onChangeText={setAmount}
-            keyboardType="numeric"
-          />
+  {isAr ? "المبلغ" : "Amount"} ({currencyCode}) *
+</Text>
+          <View style={[styles.amountInputWrapper, { borderColor: theme.border }]}>
+  <Text style={[styles.currencyPrefix, { color: theme.textSecondary }]}>
+    {currencySymbol}
+  </Text>
+  <TextInput
+    style={[
+      styles.amountInputWithPrefix,
+      {
+        backgroundColor: theme.card,
+        color: theme.text,
+      },
+    ]}
+    placeholder="0.00"
+    placeholderTextColor={theme.textSecondary}
+    value={amount}
+    onChangeText={setAmount}
+    keyboardType="numeric"
+  />
+</View>
         </View>
 
         {/* Due Date */}
@@ -311,4 +328,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_500Medium",
   },
+amountInputWrapper: {
+  flexDirection: "row",
+  alignItems: "center",
+  borderRadius: 12,
+  borderWidth: 1,
+  overflow: "hidden",
+},
+currencyPrefix: {
+  paddingHorizontal: 16,
+  paddingVertical: 14,
+  fontSize: 16,
+  fontFamily: "Inter_500Medium",
+  backgroundColor: "transparent",
+},
+amountInputWithPrefix: {
+  flex: 1,
+  paddingHorizontal: 0,
+  paddingVertical: 14,
+  fontSize: 16,
+},
 });

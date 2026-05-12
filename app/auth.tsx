@@ -16,7 +16,6 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/context/AuthContext";
-import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 
 export default function AuthScreen() {
@@ -24,50 +23,41 @@ export default function AuthScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const { login, register } = useAuth();
-  const { t } = useLanguage();
+  const { login } = useAuth();
 
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
-  const handleSubmit = useCallback(async () => {
+  const handleLogin = useCallback(async () => {
     setError("");
-    if (!username.trim() || !password.trim()) {
+    if (!email.trim() || !password.trim()) {
       setError("Please fill in all fields");
-      return;
-    }
-    if (mode === "register" && !displayName.trim()) {
-      setError("Please enter a display name");
       return;
     }
     setLoading(true);
     try {
-      if (mode === "login") {
-        await login(username.trim(), password);
-      } else {
-        await register(username.trim(), password, displayName.trim());
-      }
+      await login(email.trim(), password);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      router.replace("/(tabs)");
     } catch (e: any) {
       const msg = e.message || "Something went wrong";
       const cleanMsg = msg.includes(":") ? msg.split(":").slice(1).join(":").trim() : msg;
-      try {
-        const parsed = JSON.parse(cleanMsg);
-        setError(parsed.message || cleanMsg);
-      } catch {
-        setError(cleanMsg);
-      }
+      setError(cleanMsg);
     } finally {
       setLoading(false);
     }
-  }, [mode, username, password, displayName, login, register]);
+  }, [email, password, login]);
+
+  const handleSignUp = () => {
+  console.log("🔵 SIGN UP CLICKED - Navigating to onboarding");
+  setTimeout(() => {
+    router.push("/onboarding");
+  }, 100);
+};
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -81,17 +71,13 @@ export default function AuthScreen() {
           },
         ]}
       >
-        <Pressable
-          onPress={() => router.back()}
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-        >
+        <Pressable onPress={() => router.back()}>
           <Feather name="x" size={22} color={theme.textSecondary} />
         </Pressable>
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          {mode === "login" ? t("signInTitle") : t("signInCreateAccount")}
+          Sign In
         </Text>
         <View style={{ width: 22 }} />
       </View>
@@ -103,41 +89,16 @@ export default function AuthScreen() {
       >
         <View style={styles.iconContainer}>
           <View style={[styles.iconCircle, { backgroundColor: theme.tint + "22" }]}>
-            <Feather name="cloud" size={40} color={theme.tint} />
+            <Feather name="users" size={40} color={theme.tint} />
           </View>
           <Text style={[styles.subtitle, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Sign in to create cloud books and collaborate with your team
+            Sign in to access your cloud books and collaborate with your team
           </Text>
         </View>
 
-        {mode === "register" && (
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-              {t("displayName")}
-            </Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: theme.card,
-                  borderColor: theme.border,
-                  color: theme.text,
-                  fontFamily: "Inter_400Regular",
-                },
-              ]}
-              value={displayName}
-              onChangeText={setDisplayName}
-              placeholder="Your name"
-              placeholderTextColor={theme.textSecondary + "88"}
-              autoCapitalize="words"
-              testID="displayName-input"
-            />
-          </View>
-        )}
-
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {t("username")}
+            Email *
           </Text>
           <TextInput
             style={[
@@ -149,19 +110,19 @@ export default function AuthScreen() {
                 fontFamily: "Inter_400Regular",
               },
             ]}
-            value={username}
-            onChangeText={setUsername}
-            placeholder="username"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="email@example.com"
             placeholderTextColor={theme.textSecondary + "88"}
             autoCapitalize="none"
             autoCorrect={false}
-            testID="username-input"
+            keyboardType="email-address"
           />
         </View>
 
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {t("password")}
+            Password *
           </Text>
           <TextInput
             style={[
@@ -175,10 +136,9 @@ export default function AuthScreen() {
             ]}
             value={password}
             onChangeText={setPassword}
-            placeholder="password"
+            placeholder="••••••••"
             placeholderTextColor={theme.textSecondary + "88"}
             secureTextEntry
-            testID="password-input"
           />
         </View>
 
@@ -191,7 +151,7 @@ export default function AuthScreen() {
         ) : null}
 
         <Pressable
-          onPress={handleSubmit}
+          onPress={handleLogin}
           disabled={loading}
           style={({ pressed }) => [
             styles.submitBtn,
@@ -200,28 +160,21 @@ export default function AuthScreen() {
               opacity: pressed || loading ? 0.7 : 1,
             },
           ]}
-          testID="auth-submit"
         >
           {loading ? (
             <ActivityIndicator color="#FFF" size="small" />
           ) : (
             <Text style={[styles.submitText, { fontFamily: "Inter_600SemiBold" }]}>
-              {mode === "login" ? t("signInTitle") : t("signInCreateAccount")}
+              Sign In
             </Text>
           )}
         </Pressable>
 
-        <Pressable
-          onPress={() => {
-            setMode(mode === "login" ? "register" : "login");
-            setError("");
-          }}
-          style={styles.toggleBtn}
-        >
+        <Pressable onPress={handleSignUp} style={styles.toggleBtn}>
           <Text style={[styles.toggleText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+            Don't have an account?{" "}
             <Text style={{ color: theme.tint, fontFamily: "Inter_600SemiBold" }}>
-              {mode === "login" ? "Sign Up" : "Sign In"}
+              Sign Up
             </Text>
           </Text>
         </Pressable>
