@@ -1,16 +1,13 @@
 {
   "expo": {
-    "name": "Feloosak",
-    "slug": "feloosak-cash-book",
+    "name": "Felosak",
+    "slug": "felosak",
     "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "feloosak",
+    "scheme": "felosak",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "cli": {
-      "appVersionSource": "remote"
-    },
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
@@ -23,9 +20,10 @@
     "android": {
       "package": "com.misrhesabatcashbookforbusinesspersonalfinance.app",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundColor": "#0D2B1E",
-        "foregroundScale": 0.7
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundImage": "./assets/images/icon.png",
+        "monochromeImage": "./assets/images/icon.png"
       }
     },
     "web": {
@@ -50,7 +48,7 @@
         "origin": "https://replit.com/"
       },
       "eas": {
-        "projectId": "5b943536-6186-4f62-8c3c-aaed25ee7747"
+        "projectId": "ed76a61d-ce05-439c-8067-942460e0d55f"
       }
     }
   }

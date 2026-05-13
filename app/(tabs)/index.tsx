@@ -1,25 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert } from "react-native";
-import { Dimensions } from "react-native";
+import { Platform, Alert, Dimensions, FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useColorScheme, ActivityIndicator } from "react-native";
 import { LinearGradient } from 'expo-linear-gradient';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import { useFocusEffect } from 'expo-router';
+import { loadCurrency } from '@/utils/format';
+import { getFirestore, collection, query, where, getDocs, deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { Image } from "react-native";
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import favicon from '@/assets/images/favicon.png';
 import React, { useCallback, useMemo, useState, useEffect } from "react";
-import {
-  FlatList,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  SectionList,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  useColorScheme,
-} from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -28,17 +18,15 @@ import { useApp, CashBook, Transaction } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
-import { formatEGP, formatEGPShort, formatDateGroup, formatTime } from "@/utils/format";
+import { formatEGP, formatEGPShort, formatTime, formatDate, getCurrencySymbol, getCurrencyCode, subscribeToCurrencyChanges } from "@/utils/format";
 import { getPaymentModeLabel } from "@/app/add-transaction";
-
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 const screenWidth = Dimensions.get("window").width;
-const chartWidth = screenWidth - 60;
 
 type SortOption = "lastUpdated" | "nameAtoZ" | "balanceHighLow" | "balanceLowHigh" | "lastCreated";
 type DashFilter = "all" | "income" | "expense";
-type DashPayFilter = "all" | string;
 
-// Available icons for cash books
 const AVAILABLE_ICONS = [
   "book", "shopping-bag", "coffee", "car", "home", "heart", "briefcase", 
   "gift", "dollar-sign", "credit-card", "smartphone", "watch", "camera", 
@@ -46,311 +34,427 @@ const AVAILABLE_ICONS = [
   "trending-up", "trending-down", "bar-chart-2", "pie-chart", "activity"
 ];
 
-// Profile data type
 interface ProfileData {
   name: string;
+  phoneNumber: string;
+  address: string;
   taxId: string;
   bankAccount: string;
   paymentLink: string;
+  photo: string;  // Make sure this is here
 }
 
 const STORAGE_KEY = "user_profile_data";
+const ORGANIZATION_KEY = "user_organization_data";
 
-const generateWavyPath = (data, height, maxValue, width) => {
-  const stepX = width / (data.length - 1);
-  let path = "";
-
-  data.forEach((value, index) => {
-    const x = index * stepX;
-    const y = height - (value / maxValue) * height;
-
-    if (index === 0) {
-      path += `M ${x} ${y}`;
-    } else {
-      const prevX = (index - 1) * stepX;
-      const prevY = height - (data[index - 1] / maxValue) * height;
-
-      const cp1X = prevX + stepX / 2;
-      const cp1Y = prevY;
-
-      const cp2X = x - stepX / 2;
-      const cp2Y = y;
-
-      path += ` C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${x} ${y}`;
-    }
-  });
-
-  return path;
-};
-
-// ==================== PROFILE MODAL COMPONENT (FULLY FIXED) ====================
-// ==================== PROFILE MODAL COMPONENT (FIXED WITH ASYNCSTORAGE) ====================
-function ProfileModal({ visible, onClose, theme, isDark, onLogout }: { visible: boolean; onClose: () => void; theme: typeof Colors.dark; isDark: boolean; onLogout: () => void }) {
+// ==================== PROFILE MODAL COMPONENT ====================
+function ProfileModal({ visible, onClose, theme, isDark, onLogout, onDeleteAccount, onProfileUpdate }: { 
+  visible: boolean; 
+  onClose: () => void; 
+  theme: typeof Colors.dark; 
+  isDark: boolean; 
+  onLogout: () => void;
+  onDeleteAccount?: () => void;
+  onProfileUpdate?: () => void;
+}) {
   const { user } = useAuth();
-  const { t } = useLanguage();
   const [profile, setProfile] = useState<ProfileData>({
     name: "",
+    phoneNumber: "",
+    address: "",
     taxId: "",
     bankAccount: "",
     paymentLink: "",
+    photo: "",
   });
+  const [orgData, setOrgData] = useState({ organizationName: "", industry: "" });
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const pickProfilePhoto = async () => {
+  try {
+    // For Web - use file input
+    if (Platform.OS === 'web') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/jpeg,image/png,image/jpg,image/webp';
+      input.onchange = (e: any) => {
+        const file = e.target.files[0];
+        if (file) {
+          // Check file size (limit to 2MB)
+          if (file.size > 2 * 1024 * 1024) {
+            Alert.alert("Error", "Image size should be less than 2MB");
+            return;
+          }
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64String = reader.result as string;
+            setProfile({ ...profile, photo: base64String });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+      return;
+    }
+    
+    // For Native (iOS/Android)
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      Alert.alert("Permission Required", "We need access to your photos to set a profile picture.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.5,
+      base64: true,
+      aspect: [1, 1],
+    });
+    
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const asset = result.assets[0];
+      if (asset.base64) {
+        setProfile({ ...profile, photo: `data:image/jpeg;base64,${asset.base64}` });
+      } else if (asset.uri) {
+        setProfile({ ...profile, photo: asset.uri });
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  } catch (error) {
+    console.error("Error picking image:", error);
+    Alert.alert("Error", "Failed to pick image");
+  }
+};
+
+const takeProfilePhoto = async () => {
+  try {
+    // For Web - camera not supported, use file input with capture
+    if (Platform.OS === 'web') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/jpeg,image/png,image/jpg';
+      input.capture = 'environment';
+      input.onchange = (e: any) => {
+        const file = e.target.files[0];
+        if (file) {
+          if (file.size > 2 * 1024 * 1024) {
+            Alert.alert("Error", "Image size should be less than 2MB");
+            return;
+          }
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64String = reader.result as string;
+            setProfile({ ...profile, photo: base64String });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+      input.click();
+      return;
+    }
+    
+    // For Native (iOS/Android)
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Required", "Camera access is needed to take photos.");
+      return;
+    }
+    
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.5,
+      base64: true,
+      aspect: [1, 1],
+    });
+    
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const asset = result.assets[0];
+      if (asset.base64) {
+        setProfile({ ...profile, photo: `data:image/jpeg;base64,${asset.base64}` });
+      } else if (asset.uri) {
+        setProfile({ ...profile, photo: asset.uri });
+      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  } catch (error) {
+    console.error("Error taking photo:", error);
+    Alert.alert("Error", "Failed to take photo");
+  }
+};
+  const loadProfile = async () => {
+  if (!user) return;
+  try {
+    setLoading(true);
+    const userId = user.id;
+    
+    const [savedData, savedOrg] = await Promise.all([
+      AsyncStorage.getItem(`${STORAGE_KEY}_${userId}`),
+      AsyncStorage.getItem(`${ORGANIZATION_KEY}_${userId}`)
+    ]);
+    
+    if (savedData) {
+      const parsed = JSON.parse(savedData);
+      console.log("Loaded photo data:", parsed.photo ? "Photo present" : "No photo");
+      setProfile({
+        name: parsed.name || "",
+        phoneNumber: parsed.phoneNumber || "",
+        address: parsed.address || "",
+        taxId: parsed.taxId || "",
+        bankAccount: parsed.bankAccount || "",
+        paymentLink: parsed.paymentLink || "",
+        photo: parsed.photo || "", // Make sure photo is loaded
+      });
+    }
+    
+    if (savedOrg) {
+      const parsedOrg = JSON.parse(savedOrg);
+      setOrgData({
+        organizationName: parsedOrg.organizationName || "",
+        industry: parsedOrg.industry || ""
+      });
+    }
+  } catch (error) {
+    console.error("Error loading profile:", error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
-    const loadProfile = async () => {
-      if (visible && user) {
-        try {
-          const savedData = await AsyncStorage.getItem(`${STORAGE_KEY}_${user.uid}`);
-          if (savedData) {
-            setProfile(JSON.parse(savedData));
-          } else {
-            setProfile({
-              name: user.displayName || user.email?.split('@')[0] || "",
-              taxId: "",
-              bankAccount: "",
-              paymentLink: "",
-            });
-          }
-        } catch (error) {
-          console.error("Error loading profile:", error);
-        }
-      }
-    };
-    loadProfile();
+    if (visible && user) {
+      loadProfile();
+    }
   }, [visible, user]);
 
-  const handleLogout = () => {
+  const saveProfile = async () => {
+  if (!user) return;
+  try {
+    const userId = user.id;
+    await AsyncStorage.setItem(`${STORAGE_KEY}_${userId}`, JSON.stringify(profile));
+    await AsyncStorage.setItem(`${ORGANIZATION_KEY}_${userId}`, JSON.stringify(orgData));
+    
+    if (onProfileUpdate) onProfileUpdate();
+    
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setIsEditing(false);
+    onClose();
+  } catch (error) {
+    console.error("Error saving profile:", error);
+    Alert.alert("Error", "Failed to save profile");
+  }
+};
+  const handleLogoutPress = () => {
+  Alert.alert(
+    "Sign Out",
+    "Are you sure you want to sign out?",
+    [
+      { text: "Cancel", style: "cancel" },
+      { 
+        text: "Sign Out", 
+        style: "destructive", 
+        onPress: async () => {
+          // REMOVE THIS LINE:
+          // await AsyncStorage.clear();
+          onLogout();
+        }
+      }
+    ]
+  );
+};
+
+  const handleDeleteAccount = () => {
     Alert.alert(
-      "Sign Out",
-      "Are you sure you want to sign out?",
+      "Delete Account",
+      "Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.",
       [
         { text: "Cancel", style: "cancel" },
         { 
-          text: "Sign Out", 
+          text: "Delete", 
           style: "destructive", 
           onPress: async () => {
-            await AsyncStorage.clear();
-            onLogout();
+            if (onDeleteAccount) {
+              onDeleteAccount();
+            } else {
+              await AsyncStorage.clear();
+              onLogout();
+            }
           }
         }
       ]
     );
   };
 
-  const saveProfile = async () => {
-    if (user) {
-      try {
-        await AsyncStorage.setItem(`${STORAGE_KEY}_${user.uid}`, JSON.stringify(profile));
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setIsEditing(false);
-        onClose();
-      } catch (error) {
-        console.error("Error saving profile:", error);
-      }
-    }
-  };
+  if (loading) {
+    return (
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.profileModalContent, { backgroundColor: isDark ? '#1f2937' : '#FFFFFF' }]}>
+            <ActivityIndicator size="large" color={theme.tint} />
+          </View>
+        </View>
+      </Modal>
+    );
+  }
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={[
-          styles.profileModalContent,
-          {
-            width: "95%",
-            maxWidth: 500,
-            backgroundColor: isDark ? '#1f2937' : '#FFFFFF',
-          }
-        ]}>
-          <View style={styles.profileModalHeader}>
-            <Text style={[styles.profileModalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-              {isEditing ? "Edit Profile" : "Profile"}
-            </Text>
-            <Pressable onPress={onClose} hitSlop={8}>
-              <Feather name="x" size={24} color={theme.textSecondary} />
-            </Pressable>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <View style={styles.profileUserSection}>
-              <View style={[styles.profileAvatar, { backgroundColor: theme.tint + '20' }]}>
-                <Feather name="user" size={32} color={theme.tint} />
-              </View>
-              <Text style={[styles.profileEmail, { color: theme.textSecondary }]}>{user?.email}</Text>
+    <>
+      <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.profileModalContent, { width: "95%", maxWidth: 500, backgroundColor: isDark ? '#1f2937' : '#FFFFFF' }]}>
+            <View style={styles.profileModalHeader}>
+              <Text style={[styles.profileModalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+                {isEditing ? "Edit Profile" : "Profile"}
+              </Text>
+              <Pressable onPress={onClose} hitSlop={8}>
+                <Feather name="x" size={24} color={theme.textSecondary} />
+              </Pressable>
             </View>
 
-            {!isEditing ? (
-              // View Mode
-              <>
-                <View style={styles.profileInfoRow}>
-                  <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Full Name</Text>
-                  <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.name || "Not set"}</Text>
-                </View>
-                <View style={styles.profileInfoRow}>
-                  <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Tax ID / GSTIN</Text>
-                  <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.taxId || "Not set"}</Text>
-                </View>
-                <View style={styles.profileInfoRow}>
-                  <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Bank Account</Text>
-                  <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.bankAccount || "Not set"}</Text>
-                </View>
-                <View style={styles.profileInfoRow}>
-                  <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Payment Link</Text>
-                  <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.paymentLink || "Not set"}</Text>
-                </View>
-                
-                <Pressable
-                  onPress={() => setIsEditing(true)}
-                  style={({ pressed }) => [
-                    styles.profileEditBtn,
-                    {
-                      backgroundColor: theme.tint,
-                      opacity: pressed ? 0.8 : 1,
-                    }
-                  ]}
-                >
-                  <Feather name="edit-2" size={18} color="#FFF" />
-                  <Text style={[styles.profileEditBtnText, { color: "#FFF" }]}>Edit Profile</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.profileUserSection}>
+                <Pressable onPress={isEditing ? () => {
+                  Alert.alert(
+                    "Profile Photo",
+                    "Choose an option",
+                    [
+                      { text: "Take Photo", onPress: takeProfilePhoto },
+                      { text: "Choose from Gallery", onPress: pickProfilePhoto },
+                      { text: "Cancel", style: "cancel" }
+                    ]
+                  );
+                } : undefined}>
+                  {profile.photo ? (
+  <Image 
+    source={{ uri: profile.photo }} 
+    style={styles.profileAvatarImage}
+    onError={() => console.log("Failed to load image, URI:", profile.photo?.substring(0, 100))}
+  />
+) : (
+  <View style={[styles.profileAvatar, { backgroundColor: theme.tint + '20' }]}>
+    <Feather name="user" size={32} color={theme.tint} />
+  </View>
+)}
+                  {isEditing && (
+                    <View style={styles.editPhotoBadge}>
+                      <Feather name="camera" size={14} color="#FFF" />
+                    </View>
+                  )}
                 </Pressable>
-              </>
-            ) : (
-              // Edit Mode
-              <>
-                <View style={styles.profileField}>
-                  <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                    Full Name
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.profileInput,
-                      {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                        color: theme.text,
-                        borderColor: theme.border,
-                      }
-                    ]}
-                    placeholder="Enter your name"
-                    placeholderTextColor={theme.textSecondary}
-                    value={profile.name}
-                    onChangeText={(text) => setProfile({ ...profile, name: text })}
-                  />
-                </View>
+                <Text style={[styles.profileEmail, { color: theme.textSecondary }]}>{user?.email}</Text>
+              </View>
 
-                <View style={styles.profileField}>
-                  <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                    Tax ID / GSTIN
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.profileInput,
-                      {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                        color: theme.text,
-                        borderColor: theme.border,
-                      }
-                    ]}
-                    placeholder="Enter Tax ID"
-                    placeholderTextColor={theme.textSecondary}
-                    value={profile.taxId}
-                    onChangeText={(text) => setProfile({ ...profile, taxId: text })}
-                  />
-                </View>
-
-                <View style={styles.profileField}>
-                  <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                    Bank Account
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.profileInput,
-                      {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                        color: theme.text,
-                        borderColor: theme.border,
-                      }
-                    ]}
-                    placeholder="Bank Name - Account Number"
-                    placeholderTextColor={theme.textSecondary}
-                    value={profile.bankAccount}
-                    onChangeText={(text) => setProfile({ ...profile, bankAccount: text })}
-                  />
-                </View>
-
-                <View style={styles.profileField}>
-                  <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                    Payment Link
-                  </Text>
-                  <TextInput
-                    style={[
-                      styles.profileInput,
-                      {
-                        backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                        color: theme.text,
-                        borderColor: theme.border,
-                      }
-                    ]}
-                    placeholder="https://..."
-                    placeholderTextColor={theme.textSecondary}
-                    value={profile.paymentLink}
-                    onChangeText={(text) => setProfile({ ...profile, paymentLink: text })}
-                  />
-                </View>
-
-                <View style={styles.profileModalActions}>
-                  <Pressable
-                    onPress={() => setIsEditing(false)}
-                    style={({ pressed }) => [
-                      styles.profileCancelBtn,
-                      {
-                        backgroundColor: theme.surface,
-                        opacity: pressed ? 0.8 : 1,
-                      }
-                    ]}
-                  >
-                    <Text style={[styles.profileBtnText, { color: theme.text }]}>Cancel</Text>
+              {!isEditing ? (
+                <>
+                  <View style={styles.profileInfoRow}>
+                    <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Full Name</Text>
+                    <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.name || "Not set"}</Text>
+                  </View>
+                  <View style={styles.profileInfoRow}>
+                    <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Phone Number</Text>
+                    <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.phoneNumber || "Not set"}</Text>
+                  </View>
+                  <View style={styles.profileInfoRow}>
+                    <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Address</Text>
+                    <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.address || "Not set"}</Text>
+                  </View>
+                  <View style={styles.profileInfoRow}>
+                    <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Organization</Text>
+                    <Text style={[styles.profileInfoValue, { color: theme.text }]}>{orgData.organizationName || "Not set"}</Text>
+                  </View>
+                  <View style={styles.profileInfoRow}>
+                    <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Industry</Text>
+                    <Text style={[styles.profileInfoValue, { color: theme.text }]}>{orgData.industry || "Not set"}</Text>
+                  </View>
+                  <View style={styles.profileInfoRow}>
+                    <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>GSTIN Number</Text>
+                    <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.taxId || "Not set"}</Text>
+                  </View>
+                  <View style={styles.profileInfoRow}>
+                    <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Bank Account</Text>
+                    <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.bankAccount || "Not set"}</Text>
+                  </View>
+                  <View style={styles.profileInfoRow}>
+                    <Text style={[styles.profileInfoLabel, { color: theme.textSecondary }]}>Payment Link</Text>
+                    <Text style={[styles.profileInfoValue, { color: theme.text }]}>{profile.paymentLink || "Not set"}</Text>
+                  </View>
+                  
+                  <Pressable onPress={() => setIsEditing(true)} style={[styles.profileEditBtn, { backgroundColor: theme.tint }]}>
+                    <Feather name="edit-2" size={18} color="#FFF" />
+                    <Text style={[styles.profileEditBtnText, { color: "#FFF" }]}>Edit Profile</Text>
                   </Pressable>
-                  <Pressable
-                    onPress={saveProfile}
-                    style={({ pressed }) => [
-                      styles.profileSaveBtn,
-                      {
-                        backgroundColor: theme.tint,
-                        opacity: pressed ? 0.8 : 1,
-                      }
-                    ]}
-                  >
-                    <Text style={[styles.profileBtnText, { color: "#FFF" }]}>Save</Text>
-                  </Pressable>
-                </View>
-              </>
-            )}
+                </>
+              ) : (
+                <>
+                  <View style={styles.profileField}>
+                    <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>Full Name</Text>
+                    <TextInput style={[styles.profileInput, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: theme.text, borderColor: theme.border }]} placeholder="Enter your name" placeholderTextColor={theme.textSecondary} value={profile.name} onChangeText={(text) => setProfile({ ...profile, name: text })} />
+                  </View>
+                  <View style={styles.profileField}>
+                    <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>Phone Number</Text>
+                    <TextInput style={[styles.profileInput, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: theme.text, borderColor: theme.border }]} placeholder="+1 234 567 8900" placeholderTextColor={theme.textSecondary} value={profile.phoneNumber} onChangeText={(text) => setProfile({ ...profile, phoneNumber: text })} keyboardType="phone-pad" />
+                  </View>
+                  <View style={styles.profileField}>
+                    <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>Address</Text>
+                    <TextInput style={[styles.profileInput, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: theme.text, borderColor: theme.border }]} placeholder="Your address" placeholderTextColor={theme.textSecondary} value={profile.address} onChangeText={(text) => setProfile({ ...profile, address: text })} multiline numberOfLines={2} />
+                  </View>
+                  <View style={styles.profileField}>
+                    <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>GSTIN Number</Text>
+                    <TextInput style={[styles.profileInput, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: theme.text, borderColor: theme.border }]} placeholder="GSTIN number" placeholderTextColor={theme.textSecondary} value={profile.taxId} onChangeText={(text) => setProfile({ ...profile, taxId: text })} />
+                  </View>
+                  <View style={styles.profileField}>
+                    <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>Bank Account</Text>
+                    <TextInput style={[styles.profileInput, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: theme.text, borderColor: theme.border }]} placeholder="Bank Name - Account Number" placeholderTextColor={theme.textSecondary} value={profile.bankAccount} onChangeText={(text) => setProfile({ ...profile, bankAccount: text })} />
+                  </View>
+                  <View style={styles.profileField}>
+                    <Text style={[styles.profileLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>Payment Link</Text>
+                    <TextInput style={[styles.profileInput, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', color: theme.text, borderColor: theme.border }]} placeholder="https://..." placeholderTextColor={theme.textSecondary} value={profile.paymentLink} onChangeText={(text) => setProfile({ ...profile, paymentLink: text })} />
+                  </View>
+                  <View style={styles.profileModalActions}>
+                    <Pressable onPress={() => setIsEditing(false)} style={[styles.profileCancelBtn, { backgroundColor: theme.surface }]}><Text style={[styles.profileBtnText, { color: theme.text }]}>Cancel</Text></Pressable>
+                    <Pressable onPress={saveProfile} style={[styles.profileSaveBtn, { backgroundColor: theme.tint }]}><Text style={[styles.profileBtnText, { color: "#FFF" }]}>Save</Text></Pressable>
+                  </View>
+                </>
+              )}
 
-            <View style={[styles.profileDivider, { backgroundColor: theme.border }]} />
-
-            <Pressable
-              onPress={handleLogout}
-              style={({ pressed }) => [
-                styles.profileLogoutBtn,
-                {
-                  backgroundColor: theme.expense + '15',
-                  borderColor: theme.expense,
-                  opacity: pressed ? 0.8 : 1,
-                }
-              ]}
-            >
-              <Feather name="log-out" size={20} color={theme.expense} />
-              <Text style={[styles.profileLogoutText, { color: theme.expense, fontFamily: "Inter_600SemiBold" }]}>
-                Sign Out
-              </Text>
-            </Pressable>
-          </ScrollView>
+              <View style={[styles.profileDivider, { backgroundColor: theme.border }]} />
+              
+              <Pressable onPress={handleDeleteAccount} style={[styles.profileDeleteBtn, { backgroundColor: theme.expense + '15', borderColor: theme.expense, marginBottom: 12 }]}>
+                <Feather name="trash-2" size={20} color={theme.expense} />
+                <Text style={[styles.profileDeleteText, { color: theme.expense, fontFamily: "Inter_600SemiBold" }]}>Delete Account</Text>
+              </Pressable>
+              
+              <Pressable onPress={handleLogoutPress} style={[styles.profileLogoutBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Feather name="log-out" size={20} color={theme.textSecondary} />
+                <Text style={[styles.profileLogoutText, { color: theme.textSecondary, fontFamily: "Inter_600SemiBold" }]}>Sign Out</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      {/* Delete Account Confirmation Modal */}
+      <Modal visible={showDeleteConfirm} transparent animationType="fade" onRequestClose={() => setShowDeleteConfirm(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: isDark ? '#1f2937' : '#FFFFFF' }]}>
+            <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>Delete Account</Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.</Text>
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setShowDeleteConfirm(false)} style={[styles.modalBtn, { backgroundColor: theme.surface }]}>
+                <Text style={[styles.modalBtnText, { color: theme.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={handleDeleteAccount} style={[styles.modalBtn, { backgroundColor: theme.expense }]}>
+                <Text style={[styles.modalBtnText, { color: "#FFF" }]}>Delete</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -377,411 +481,271 @@ function IconPickerModal({ visible, onClose, onSelectIcon, currentIcon, theme, i
   );
 }
 
-// ==================== BOOK DASHBOARD COMPONENT ====================
+// ==================== TX ITEM COMPONENT ====================
+// ==================== TX ITEM COMPONENT ====================
+function TxItem({ tx, theme, onEdit, onDelete }: { tx: Transaction; theme: typeof Colors.dark; onEdit: (tx: Transaction) => void; onDelete: (tx: Transaction) => void }) {
+  if (!tx || !tx.id) return null;
+  const isIncome = tx.type === "income";
+  const modeLabel = tx.paymentMode && tx.paymentMode !== "cash" ? getPaymentModeLabel(tx.paymentMode) : null;
+  
+  return (
+    <Pressable onPress={() => onEdit(tx)} onLongPress={() => onDelete(tx)} style={({ pressed }) => [styles.txItem, { backgroundColor: pressed ? theme.surface : "transparent" }]}>
+      <View style={[styles.txIcon, { backgroundColor: isIncome ? theme.income + '15' : theme.expense + '15' }]}>
+        <Feather name={isIncome ? "trending-up" : "trending-down"} size={20} color={isIncome ? theme.income : theme.expense} />
+      </View>
+      <View style={styles.txContent}>
+        <View style={styles.txCatRow}>
+          <Text style={[styles.txCat, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>{tx.category}</Text>
+          {modeLabel && <Text style={[styles.txPayMode, { color: theme.textSecondary }]}>• {modeLabel}</Text>}
+        </View>
+        {tx.note ? <Text style={[styles.txNote, { color: theme.textSecondary }]} numberOfLines={1}>{tx.note}</Text> : null}
+        <View style={styles.txMeta}>
+          <Text style={[styles.txDate, { color: theme.textSecondary }]}>{formatDate(tx.createdAt)}</Text>
+        </View>
+      </View>
+      <View style={styles.txRight}>
+        <Text style={[styles.txAmt, { color: isIncome ? theme.income : theme.expense, fontFamily: "Inter_600SemiBold" }]}>
+          {isIncome ? "+" : "-"} {formatEGP(tx.amount)}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+// ==================== BOOK DASHBOARD ====================
 function BookDashboard() {
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const {
-    activeBook,
-    setActiveBook,
-    transactions,
-    deleteTransaction,
-  } = useApp();
+  // ✅ Make sure transactions is included here
+  const { activeBook, setActiveBook, transactions, deleteTransaction } = useApp();
   const { t } = useLanguage();
 
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [entryFilter, setEntryFilter] = useState<DashFilter>("all");
-  const [payFilter, setPayFilter] = useState<DashPayFilter>("all");
-  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
-  
-  // Filter Modal States
-  const [showFilterModal, setShowFilterModal] = useState(false);
-  const [tempEntryFilter, setTempEntryFilter] = useState<DashFilter>("all");
-  const [tempPayFilter, setTempPayFilter] = useState<DashPayFilter>("all");
-
+  const [filter, setFilter] = useState<DashFilter>("all");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
+useFocusEffect(
+    useCallback(() => {
+      loadCurrency();
+    }, [])
+  );
+const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing dashboard");
+    setCurrencyRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+const generatePDF = useCallback(async () => {
+  if (!activeBook || !transactions || transactions.length === 0) {
+    Alert.alert("No Data", "No transactions to export");
+    return;
+  }
 
-  // Sync temp filters when modal opens
-  useEffect(() => {
-    if (showFilterModal) {
-      setTempEntryFilter(entryFilter);
-      setTempPayFilter(payFilter);
+  try {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    const currencySymbol = getCurrencySymbol();
+    const currencyCode = getCurrencyCode();
+    
+    // Calculate totals
+    let totalIncome = 0;
+    let totalExpense = 0;
+    transactions.forEach(t => {
+      if (t.type === 'income') totalIncome += t.amount;
+      else totalExpense += t.amount;
+    });
+    
+    // HTML content for PDF
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>${activeBook.name} - Transactions</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; margin: 0; color: #333; }
+          .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #3B82F6; padding-bottom: 20px; }
+          .header h1 { color: #3B82F6; margin: 0; font-size: 24px; }
+          .header p { color: #666; margin: 5px 0 0; font-size: 12px; }
+          .summary { background: #F3F4F6; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+          .summary h3 { margin: 0 0 10px; color: #111; }
+          .summary-row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+          .income { color: #22C55E; font-weight: bold; }
+          .expense { color: #EF4444; font-weight: bold; }
+          .balance { color: #3B82F6; font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th { background: #3B82F6; color: white; padding: 10px; text-align: left; font-size: 12px; }
+          td { padding: 8px 10px; border-bottom: 1px solid #E5E7EB; font-size: 11px; }
+          .amount-income { color: #22C55E; font-weight: bold; }
+          .amount-expense { color: #EF4444; font-weight: bold; }
+          .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #999; border-top: 1px solid #E5E7EB; padding-top: 15px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>${activeBook.name}</h1>
+          <p>Generated: ${new Date().toLocaleString()}</p>
+        </div>
+        <div class="summary">
+          <h3>Summary</h3>
+          <div class="summary-row"><span>Total Income:</span><span class="income">${currencyCode} ${totalIncome.toLocaleString('en-EG')}</span></div>
+          <div class="summary-row"><span>Total Expense:</span><span class="expense">${currencyCode} ${totalExpense.toLocaleString('en-EG')}</span></div>
+          <div class="summary-row"><span>Net Balance:</span><span class="balance">${currencyCode} ${(totalIncome - totalExpense).toLocaleString('en-EG')}</span></div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Date</th><th>Type</th><th>Category</th><th>Payment</th><th>Note</th><th>Amount</th></tr>
+          </thead>
+          <tbody>
+            ${transactions.map(t => `
+              <tr>
+                <td>${new Date(t.createdAt).toLocaleDateString()}</td>
+                <td>${t.type === 'income' ? 'Income' : 'Expense'}</td>
+                <td>${t.category}</td>
+                <td>${t.paymentMode || 'cash'}</td>
+                <td>${t.note || '-'}</td>
+                <td class="${t.type === 'income' ? 'amount-income' : 'amount-expense'}">${t.type === 'income' ? '+' : '-'} ${currencyCode} ${t.amount.toLocaleString('en-EG')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="footer">
+          <p>Total Transactions: ${transactions.length}</p>
+          <p>Generated from Felosak App</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    if (Platform.OS === 'web') {
+      const win = window.open();
+      win?.document.write(htmlContent);
+      win?.document.close();
+      win?.print();
+      Alert.alert("Success", "Print dialog opened. You can save as PDF.");
+    } else {
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      await Sharing.shareAsync(uri);
+      Alert.alert("Success", "PDF generated and shared!");
     }
-  }, [showFilterModal, entryFilter, payFilter]);
-
+  } catch (error) {
+    console.error("PDF Error:", error);
+    Alert.alert("Error", "Failed to generate PDF: " + (error as Error).message);
+  }
+}, [activeBook, transactions]);
   const filtered = useMemo(() => {
-    let result = transactions;
-    if (entryFilter !== "all") {
-      result = result.filter((t) => t.type === entryFilter);
-    }
-    if (payFilter !== "all") {
-      result = result.filter((t) => (t.paymentMode || "cash") === payFilter);
-    }
-    return result;
-  }, [transactions, entryFilter, payFilter]);
+    if (!transactions || !Array.isArray(transactions) || transactions.length === 0) return [];
+    if (filter === "all") return transactions;
+    return transactions.filter((t) => t?.type === filter);
+  }, [transactions, filter]);
 
-  const filteredTotals = useMemo(() => {
-    let inc = 0, exp = 0;
-    filtered.forEach((t) => {
-      if (t.type === "income") inc += t.amount;
-      else exp += t.amount;
-    });
-    return { income: inc, expense: exp, balance: inc - exp };
-  }, [filtered]);
-
-  const sections = useMemo(() => {
-    const grouped: Record<string, Transaction[]> = {};
-    filtered.forEach((tx) => {
-      const key = tx.date;
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(tx);
-    });
-    const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
-    let runningBalance = filteredTotals.balance;
-    const result: { title: string; data: (Transaction & { runningBalance: number })[] }[] = [];
-    for (const date of sortedDates) {
-      const items = grouped[date].sort((a, b) => b.createdAt - a.createdAt);
-      const withBalance = items.map((tx) => {
-        const bal = runningBalance;
-        runningBalance -= tx.type === "income" ? tx.amount : -tx.amount;
-        return { ...tx, runningBalance: bal };
-      });
-      result.push({ title: formatDateGroup(date), data: withBalance });
-    }
-    return result;
-  }, [filtered, filteredTotals.balance]);
-
-  const handleDeleteAll = useCallback(() => {
-    setMenuVisible(false);
-    setShowDeleteAllModal(true);
+  const handleDelete = useCallback((tx: Transaction) => {
+    if (!tx?.id) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    setTxToDelete(tx);
+    setShowDeleteModal(true);
   }, []);
 
-  const handleConfirmDeleteAll = useCallback(() => {
-    transactions.forEach((tx) => deleteTransaction(tx.id));
-    setShowDeleteAllModal(false);
-  }, [transactions, deleteTransaction]);
+  const handleConfirmDelete = useCallback(() => {
+    if (txToDelete?.id) {
+      deleteTransaction(txToDelete.id);
+    }
+    setShowDeleteModal(false);
+    setTxToDelete(null);
+  }, [txToDelete, deleteTransaction]);
 
-  if (!activeBook) return null;
+  const handleEdit = useCallback((tx: Transaction) => {
+    if (!tx?.id) return;
+    router.push({ pathname: "/add-transaction", params: { editId: tx.id } });
+  }, []);
 
-  return (
-    <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
-      <View style={[styles.dashHeader, { marginTop: insets.top + 40 }]}>
-        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveBook(null); }} hitSlop={8}>
-          <Feather name="arrow-left" size={22} color={theme.text} />
-        </Pressable>
-        <View style={styles.dashHeaderCenter}>
-          <Text style={[styles.dashTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]} numberOfLines={1}>
-            {activeBook.name}
-          </Text>
+  if (!activeBook) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
+          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>Select a Book</Text>
         </View>
-        <View style={styles.dashHeaderRight}>
-          {activeBook.isCloud && (
-            <Pressable onPress={() => router.push({ pathname: "/book-members", params: { bookId: activeBook.id } })} hitSlop={6}>
-              <Feather name="users" size={20} color={theme.textSecondary} />
-            </Pressable>
-          )}
+        <View style={styles.emptyContent}>
+          <Feather name="book-open" size={44} color={theme.textSecondary} />
+          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>Select a book to view transactions</Text>
         </View>
       </View>
+    );
+  }
 
-      {/* Filter Button */}
-      <Pressable 
-        onPress={() => setShowFilterModal(true)}
-        style={({ pressed }) => [
-          styles.filterButton,
-          { 
-            backgroundColor: (entryFilter !== "all" || payFilter !== "all") ? theme.tint : theme.card,
-            borderColor: (entryFilter !== "all" || payFilter !== "all") ? theme.tint : theme.border,
-            transform: [{ scale: pressed ? 0.97 : 1 }]
-          }
-        ]}
-      >
-        <Feather name="filter" size={18} color={(entryFilter !== "all" || payFilter !== "all") ? "#FFF" : theme.text} />
-        <Text style={[
-          styles.filterButtonText, 
-          { color: (entryFilter !== "all" || payFilter !== "all") ? "#FFF" : theme.text }
-        ]}>
-          {t("filter")}
-          {(entryFilter !== "all" || payFilter !== "all") && (
-            <Text style={styles.filterBadge}> • Active</Text>
-          )}
-        </Text>
-        {(entryFilter !== "all" || payFilter !== "all") && (
-          <Pressable 
-            onPress={(e) => { e.stopPropagation(); setEntryFilter("all"); setPayFilter("all"); }}
-            style={styles.clearFilterIcon}
-          >
-            <Feather name="x" size={14} color="#FFF" />
-          </Pressable>
-        )}
+  return (
+  <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
+      <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveBook(null); }} hitSlop={8} style={({ pressed }) => [styles.backBtn, { opacity: pressed ? 0.6 : 1 }]}>
+        <Feather name="arrow-left" size={24} color={theme.text} />
       </Pressable>
-
-      <SectionList
-        sections={sections}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={{ paddingBottom: bottomPad + 130 }}
-        stickySectionHeadersEnabled={false}
-        ListHeaderComponent={
-          <View style={styles.dashContent}>
-            <View style={[styles.summaryCard]}>
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: theme.text }]}>{t("netBalance")}</Text>
-                <Text style={[styles.summaryValue, { color: filteredTotals.balance >= 0 ? "#10B981" : "#EF4444" }]}>₹ {filteredTotals.balance?.toLocaleString() || "0"}</Text>
-              </View>
-              <View style={[styles.summaryDivider, { backgroundColor: theme.border }]} />
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: theme.text }]}>{t("totalInPlus")}</Text>
-                <Text style={[styles.summaryIncome, { color: "#10B981" }]}>₹ {filteredTotals.income?.toLocaleString() || "0"}</Text>
-              </View>
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: theme.text }]}>{t("totalOutMinus")}</Text>
-                <Text style={[styles.summaryExpense, { color: "#EF4444" }]}>₹ {filteredTotals.expense?.toLocaleString() || "0"}</Text>
-              </View>
-            </View>
-            <Text style={[styles.entryCount, { color: theme.textSecondary }]}>{t("showingEntries", { count: filtered.length, label: filtered.length === 1 ? t("entry") : t("entries") })}</Text>
-          </View>
-        }
-        renderSectionHeader={({ section: { title } }) => (
-          <View style={styles.dateHeader}><Text style={[styles.dateHeaderText, { color: theme.textSecondary }]}>{title}</Text></View>
-        )}
-        renderItem={({ item }) => (<EntryRow tx={item} theme={theme} onPress={() => { router.push({ pathname: "/add-transaction", params: { editId: item.id } }); }} />)}
-        ListEmptyComponent={
-          <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border, marginHorizontal: 16 }]}>
-            <Feather name="inbox" size={32} color={theme.textSecondary} />
-            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>{t("noEntriesYet")}{"\n"}{t("tapCashInOut")}</Text>
-          </View>
-        }
-      />
-
-      <View style={[styles.bottomBar, { paddingBottom: Platform.OS === "web" ? bottomPad + 4 : Math.max(insets.bottom, 12), marginBottom: Platform.OS === "web" ? 84 : 80, backgroundColor: theme.background, borderTopColor: theme.border }]}>
-        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push({ pathname: "/add-transaction", params: { type: "income" } }); }}
-          style={({ pressed }) => [styles.cashInBtn, { backgroundColor: "#10B981", opacity: pressed ? 0.85 : 1 }]} testID="cash-in-btn">
-          <Feather name="plus" size={18} color="#FFFFFF" />
-          <Text style={[styles.cashBtnText]}>{t("cashInCaps")}</Text>
+      <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold", flex: 1, textAlign: "center" }]} numberOfLines={1}>{activeBook.name || "Book"}</Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        {/* Members Button */}
+        <Pressable onPress={() => router.push("/members")} style={({ pressed }) => [styles.addBtn, { backgroundColor: '#8B5CF6', opacity: pressed ? 0.8 : 1 }]}>
+          <Feather name="users" size={18} color="#FFF" />
         </Pressable>
-        <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push({ pathname: "/add-transaction", params: { type: "expense" } }); }}
-          style={({ pressed }) => [styles.cashOutBtn, { backgroundColor: "#EF4444", opacity: pressed ? 0.85 : 1 }]} testID="cash-out-btn">
-          <Feather name="minus" size={18} color="#FFFFFF" />
-          <Text style={[styles.cashBtnText]}>{t("cashOutCaps")}</Text>
+        {/* PDF Download Button */}
+        <Pressable onPress={generatePDF} style={({ pressed }) => [styles.addBtn, { backgroundColor: '#EF4444', opacity: pressed ? 0.8 : 1 }]}>
+          <Feather name="download" size={18} color="#FFF" />
+        </Pressable>
+        {/* Add Transaction Button */}
+        <Pressable onPress={() => router.push("/add-transaction")} style={({ pressed }) => [styles.addBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 }]}>
+          <Feather name="plus" size={18} color="#FFF" />
         </Pressable>
       </View>
-
-      {/* Menu Modal */}
-      <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
-        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
-          <View style={[styles.menuCard, { backgroundColor: theme.card, borderColor: theme.border, top: topPad + 48 }]}>
-            <MenuItem icon="settings" label={t("bookSettings")} theme={theme} onPress={() => { setMenuVisible(false); router.push("/book-settings"); }} />
-            <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
-            {activeBook.isCloud && (<><MenuItem icon="users" label={t("teamMembers")} theme={theme} onPress={() => { setMenuVisible(false); router.push({ pathname: "/book-members", params: { bookId: activeBook.id } }); }} /><View style={[styles.menuDivider, { backgroundColor: theme.border }]} /></>)}
-            <MenuItem icon="bar-chart-2" label={t("viewReports")} theme={theme} onPress={() => { setMenuVisible(false); router.push("/(tabs)/analytics" as any); }} />
-            <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
-            <MenuItem icon="download" label={t("generateReport")} theme={theme} onPress={() => { setMenuVisible(false); router.push("/generate-report" as any); }} />
-            <View style={[styles.menuDivider, { backgroundColor: theme.border }]} />
-            <MenuItem icon="trash-2" label={t("deleteAllEntries")} theme={theme} color={theme.expense} onPress={handleDeleteAll} />
-          </View>
-        </Pressable>
-      </Modal>
-
-      {/* Delete All Confirmation Modal */}
-      <Modal visible={showDeleteAllModal} transparent animationType="fade" onRequestClose={() => setShowDeleteAllModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{t("deleteAllEntries")}</Text>
-            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{t("confirmDeleteMessage")}</Text>
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setShowDeleteAllModal(false)} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}><Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text></Pressable>
-              <Pressable onPress={handleConfirmDeleteAll} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}><Text style={[styles.modalBtnText, { color: "#FFF" }]}>{t("delete")}</Text></Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Filter Modal */}
-      <Modal
-        visible={showFilterModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowFilterModal(false)}
-      >
-        <View style={styles.filterModalOverlay}>
-          <View style={[styles.filterModalContent, { backgroundColor: theme.card }]}>
-            <View style={styles.filterModalHeader}>
-              <Text style={[styles.filterModalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-                {t("Filter") || "Filter Transactions"}
-              </Text>
-              <Pressable onPress={() => setShowFilterModal(false)} hitSlop={8}>
-                <Feather name="x" size={24} color={theme.textSecondary} />
-              </Pressable>
-            </View>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {/* Entry Type Section */}
-              <Text style={[styles.filterSectionLabel, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                {t("entryType") || "Entry Type"}
-              </Text>
-              <View style={styles.filterOptionsRow}>
-                {[
-                  { value: "all", label: t("all") || "All", icon: "list" },
-                  { value: "income", label: t("cashIn") || "Income", icon: "trending-up" },
-                  { value: "expense", label: t("cashOut") || "Expense", icon: "trending-down" },
-                ].map((option) => (
-                  <Pressable
-                    key={option.value}
-                    onPress={() => setTempEntryFilter(option.value as DashFilter)}
-                    style={({ pressed }) => [
-                      styles.filterOption,
-                      {
-                        backgroundColor: tempEntryFilter === option.value ? theme.tint + "20" : theme.surface,
-                        borderColor: tempEntryFilter === option.value ? theme.tint : theme.border,
-                        transform: [{ scale: pressed ? 0.98 : 1 }],
-                      }
-                    ]}
-                  >
-                    <Feather name={option.icon as any} size={18} color={tempEntryFilter === option.value ? theme.tint : theme.textSecondary} />
-                    <Text style={[styles.filterOptionText, { color: tempEntryFilter === option.value ? theme.tint : theme.text }]}>
-                      {option.label}
-                    </Text>
-                    {tempEntryFilter === option.value && (
-                      <Feather name="check" size={16} color={theme.tint} />
-                    )}
-                  </Pressable>
-                ))}
-              </View>
-
-              {/* Payment Mode Section */}
-              <Text style={[styles.filterSectionLabel, { color: theme.text, fontFamily: "Inter_600SemiBold", marginTop: 20 }]}>
-                {t("paymentMode") || "Payment Mode"}
-              </Text>
-              <View style={styles.filterOptionsGrid}>
-                {[
-                  { value: "all", label: t("all") || "All", icon: "grid" },
-                  { value: "cash", label: "Cash", icon: "dollar-sign" },
-                  { value: "instapay", label: "Instapay", icon: "smartphone" },
-                  { value: "vodafone_cash", label: "Vodafone Cash", icon: "phone" },
-                  { value: "fawry", label: "Fawry", icon: "credit-card" },
-                  { value: "bank_transfer", label: "Bank Transfer", icon: "building" },
-                  { value: "international", label: "International", icon: "globe" },
-                  { value: "cheque", label: "Cheque", icon: "file-text" },
-                  { value: "other", label: "Other", icon: "more-horizontal" },
-                ].map((option) => (
-                  <Pressable
-                    key={option.value}
-                    onPress={() => setTempPayFilter(option.value as DashPayFilter)}
-                    style={({ pressed }) => [
-                      styles.filterOptionGrid,
-                      {
-                        backgroundColor: tempPayFilter === option.value ? theme.tint + "20" : theme.surface,
-                        borderColor: tempPayFilter === option.value ? theme.tint : theme.border,
-                        transform: [{ scale: pressed ? 0.98 : 1 }],
-                      }
-                    ]}
-                  >
-                    <Feather name={option.icon as any} size={16} color={tempPayFilter === option.value ? theme.tint : theme.textSecondary} />
-                    <Text style={[styles.filterOptionGridText, { color: tempPayFilter === option.value ? theme.tint : theme.text }]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              {/* Active Filters Summary */}
-              {(tempEntryFilter !== "all" || tempPayFilter !== "all") && (
-                <View style={[styles.activeFiltersSummary, { backgroundColor: theme.tint + "10", borderColor: theme.tint + "30" }]}>
-                  <Feather name="filter" size={14} color={theme.tint} />
-                  <Text style={[styles.activeFiltersText, { color: theme.textSecondary }]}>
-                    Active filters: 
-                    {tempEntryFilter !== "all" && ` ${tempEntryFilter === "income" ? "Income" : "Expense"}`}
-                    {tempPayFilter !== "all" && ` • ${getPaymentModeLabel(tempPayFilter)}`}
-                  </Text>
-                </View>
-              )}
-
-              {/* Modal Actions */}
-              <View style={styles.filterModalActions}>
-                <Pressable
-                  onPress={() => {
-                    setTempEntryFilter("all");
-                    setTempPayFilter("all");
-                  }}
-                  style={({ pressed }) => [
-                    styles.filterResetBtn,
-                    { 
-                      backgroundColor: theme.surface,
-                      borderColor: theme.border,
-                      opacity: pressed ? 0.8 : 1 
-                    }
-                  ]}
-                >
-                  <Feather name="refresh-ccw" size={16} color={theme.textSecondary} />
-                  <Text style={[styles.filterResetText, { color: theme.textSecondary }]}>{t("reset") || "Reset"}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    setEntryFilter(tempEntryFilter);
-                    setPayFilter(tempPayFilter);
-                    setShowFilterModal(false);
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  }}
-                  style={({ pressed }) => [
-                    styles.filterApplyBtn,
-                    { 
-                      backgroundColor: theme.tint,
-                      opacity: pressed ? 0.85 : 1 
-                    }
-                  ]}
-                >
-                  <Feather name="check" size={18} color="#FFF" />
-                  <Text style={[styles.filterApplyText, { color: "#FFF" }]}>{t("apply") || "Apply"}</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
     </View>
-  );
-}
 
-// ==================== MENU ITEM ====================
-function MenuItem({ icon, label, theme, color, onPress }: { icon: string; label: string; theme: typeof Colors.dark; color?: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}>
-      <Feather name={icon as any} size={18} color={color || theme.text} />
-      <Text style={[styles.menuItemText, { color: color || theme.text }]}>{label}</Text>
-    </Pressable>
-  );
-}
+    <View style={[styles.filterRow, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
+      {(["all", "income", "expense"] as DashFilter[]).map((f) => (
+        <Pressable key={f} onPress={() => { Haptics.selectionAsync(); setFilter(f); }} style={[styles.filterTab, filter === f && { borderBottomColor: theme.tint, borderBottomWidth: 2 }]}>
+          <Text style={[styles.filterLabel, { color: filter === f ? theme.tint : theme.textSecondary }]}>
+            {f === "all" ? (t("all") || "All") : f === "income" ? (t("income") || "Income") : (t("expense") || "Expense")}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
 
-// ==================== ENTRY ROW ====================
-function EntryRow({ tx, theme, onPress }: { tx: Transaction & { runningBalance: number }; theme: typeof Colors.dark; onPress: () => void }) {
-  const isIncome = tx.type === "income";
-  const modeLabel = tx.paymentMode && tx.paymentMode !== "cash" ? getPaymentModeLabel(tx.paymentMode) : null;
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.entryRow, { backgroundColor: pressed ? theme.surface : "transparent" }]}>
-      <View style={styles.entryLeft}>
-        <View style={styles.entryBadgeRow}>
-          <View style={[styles.categoryBadge, { backgroundColor: isIncome ? theme.income + "18" : theme.expense + "18", borderColor: isIncome ? theme.income + "44" : theme.expense + "44" }]}>
-            <Text style={[styles.categoryBadgeText, { color: isIncome ? theme.income : theme.expense }]}>{tx.category}</Text>
-          </View>
-          {modeLabel ? (<View style={[styles.paymentBadge, { backgroundColor: theme.tint + "15", borderColor: theme.tint + "33" }]}><Feather name="credit-card" size={10} color={theme.tint} /><Text style={[styles.paymentBadgeText, { color: theme.tint }]}>{modeLabel}</Text></View>) : null}
-          {tx.attachment ? (<Feather name="paperclip" size={12} color={theme.textSecondary} />) : null}
+    <FlatList
+      data={filtered}
+      keyExtractor={(item) => item?.id || Math.random().toString()}
+renderItem={({ item }) => <TxItem key={`${item.id}-${currencyRefreshKey}`} tx={item} theme={theme} onEdit={handleEdit} onDelete={handleDelete} />}
+      contentContainerStyle={[styles.list, { paddingBottom: bottomPad + 100 }, (!filtered || filtered.length === 0) && styles.emptyContainer]}
+      ListEmptyComponent={
+        <View style={styles.emptyContent}>
+          <Feather name="inbox" size={44} color={theme.textSecondary} />
+          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No transactions found</Text>
+          <Pressable onPress={() => router.push("/add-transaction")} style={({ pressed }) => [styles.emptyBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 }]}>
+            <Text style={[styles.emptyBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>Add Transaction</Text>
+          </Pressable>
         </View>
-        {tx.note ? (<Text style={[styles.entryNote, { color: theme.text }]} numberOfLines={2}>{tx.note}</Text>) : null}
-        <Text style={[styles.entryMeta, { color: theme.textSecondary }]}>Entry by You at {formatTime(tx.createdAt)}</Text>
+      }
+      ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
+    />
+
+    <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => setShowDeleteModal(false)}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { backgroundColor: isDark ? "#0A1F15" : "#FFFFFF" }]}>
+          <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>Confirm Delete</Text>
+          <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{txToDelete ? `Delete "${txToDelete.category}" — ${formatEGP(txToDelete.amount)}?` : "Delete this transaction?"}</Text>
+          <View style={styles.modalActions}>
+            <Pressable onPress={() => setShowDeleteModal(false)} style={[styles.modalBtn, { backgroundColor: theme.surface }]}><Text style={[styles.modalBtnText, { color: theme.text }]}>Cancel</Text></Pressable>
+            <Pressable onPress={handleConfirmDelete} style={[styles.modalBtn, { backgroundColor: theme.expense }]}><Text style={[styles.modalBtnText, { color: "#FFF" }]}>Delete</Text></Pressable>
+          </View>
+        </View>
       </View>
-      <View style={styles.entryRight}>
-        <Text style={[styles.entryAmount, { color: isIncome ? theme.income : theme.expense }]}>{formatEGP(isIncome ? tx.amount : -tx.amount)}</Text>
-        <Text style={[styles.entryBalance, { color: theme.textSecondary }]}>Balance: {formatEGP(tx.runningBalance)}</Text>
-      </View>
-    </Pressable>
-  );
+    </Modal>
+  </View>
+);
 }
 
 // ==================== BOOK CARD ====================
-function BookCard({ book, theme, onPress, onLongPress, onIconChange, balance }: 
-  { book: CashBook; theme: typeof Colors.dark; onPress: () => void; onLongPress: () => void; onIconChange?: (bookId: string, icon: string) => void; balance?: number }) {
+function BookCard({ book, theme, onPress, onLongPress, onIconChange }: { book: CashBook; theme: typeof Colors.dark; onPress: () => void; onLongPress: () => void; onIconChange?: (bookId: string, icon: string) => void }) {
   const { t } = useLanguage();
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
@@ -791,105 +755,35 @@ function BookCard({ book, theme, onPress, onLongPress, onIconChange, balance }:
   const [pressed, setPressed] = useState(false);
   
   const handleIconSelect = (icon: string) => {
-    if (onIconChange) {
-      onIconChange(book.id, icon);
-    }
+    if (onIconChange) onIconChange(book.id, icon);
   };
   
   return (
     <>
-      <Pressable
-        onPress={onPress}
-        onLongPress={onLongPress}
-        onPressIn={() => setPressed(true)}
-        onPressOut={() => setPressed(false)}
-        onHoverIn={() => setIsHovered(true)}
-        onHoverOut={() => setIsHovered(false)}
-        style={({ pressed: isPressed }) => [
-          styles.bookCardInner,  // Directly use bookCardInner as the outer style
-          {
-            transform: [
-              { translateY: pressed || isPressed || isHovered ? -6 : 0 },
-              { scale: pressed || isPressed ? 0.97 : (isHovered ? 1.02 : 1) }
-            ],
-            shadowOpacity: pressed || isPressed || isHovered ? 0.3 : 0.2,
-            shadowRadius: pressed || isPressed || isHovered ? 16 : 12,
-            elevation: pressed || isPressed || isHovered ? 12 : 8,
-          },
-        ]}
-        testID={`book-${book.id}`}
-      >
-        {/* Remove LinearGradient wrapper, keep only the inner content */}
-        <LinearGradient
-          colors={['rgba(255,255,255,0.8)', 'rgba(255,255,255,0)']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={styles.bookCardHighlight}
-        />
-        <LinearGradient
-          colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.05)']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
-          style={styles.bookCardShadow}
-        />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.5)', 'rgba(255,255,255,0)']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.bookCardLeftEdge}
-        />
+      <Pressable onPress={onPress} onLongPress={onLongPress} onPressIn={() => setPressed(true)} onPressOut={() => setPressed(false)} onHoverIn={() => setIsHovered(true)} onHoverOut={() => setIsHovered(false)} style={({ pressed: isPressed }) => [styles.bookCardInner, { transform: [{ translateY: pressed || isPressed || isHovered ? -6 : 0 }, { scale: pressed || isPressed ? 0.97 : (isHovered ? 1.02 : 1) }], shadowOpacity: pressed || isPressed || isHovered ? 0.3 : 0.2, shadowRadius: pressed || isPressed || isHovered ? 16 : 12, elevation: pressed || isPressed || isHovered ? 12 : 8 }]}>
+        <LinearGradient colors={['rgba(255,255,255,0.8)', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.bookCardHighlight} />
+        <LinearGradient colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.05)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.bookCardShadow} />
+        <LinearGradient colors={['rgba(255,255,255,0.5)', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.bookCardLeftEdge} />
         
         <View style={styles.bookCardTop}>
-          <Pressable 
-            onPress={() => setShowIconPicker(true)} 
-            style={({ pressed: iconPressed }) => [
-              styles.bookIcon, 
-              { 
-                transform: [{ scale: iconPressed ? 0.95 : 1 }]
-              }
-            ]}
-          >
+          <Pressable onPress={() => setShowIconPicker(true)} style={({ pressed: iconPressed }) => [styles.bookIcon, { backgroundColor: theme.tint + "15", transform: [{ scale: iconPressed ? 0.95 : 1 }] }]}>
             <Feather name={(book.icon as any) || "book"} size={22} color={theme.tint} />
           </Pressable>
-          <View style={[styles.bookBadge, {  }]}>
-            <Text style={[styles.bookBadgeText, { color: book.isCloud ? theme.income : '#6B7280' }]}>
-              {book.isCloud ? "Business" : "Personal"}
-            </Text>
+          <View style={[styles.bookBadge, { backgroundColor: book.isCloud ? theme.income + "15" : '#F3F4F6' }]}>
+            <Text style={[styles.bookBadgeText, { color: book.isCloud ? theme.income : '#6B7280' }]}>{book.isCloud ? "Business" : "Personal"}</Text>
           </View>
         </View>
         
-        <Text style={[styles.bookName, { color: '#111827' }]} numberOfLines={1}>
-          {book.name}
-        </Text>
-        
-        {book.description ? (
-          <Text style={[styles.bookDesc, { color: '#6B7280' }]} numberOfLines={2}>
-            {book.description}
-          </Text>
-        ) : null}
+        <Text style={[styles.bookName, { color: '#111827' }]} numberOfLines={1}>{book.name}</Text>
+        {book.description ? <Text style={[styles.bookDesc, { color: '#6B7280' }]} numberOfLines={2}>{book.description}</Text> : null}
         
         <View style={styles.bookFooter}>
-          <View style={styles.bookFooterLeft}>
-            <Feather name="users" size={12} color="#9CA3AF" />
-            <Text style={[styles.bookRole, { color: '#6B7280' }]}>{roleLabel}</Text>
-          </View>
-          <View style={styles.bookFooterRight}>
-    <Text style={[styles.bookBalance, { color: theme.tint }]}>
-      {formatEGPShort(balance || 0)}
-    </Text>
-    <Feather name="chevron-right" size={14} color={theme.tint} />
-  </View>
+          <View style={styles.bookFooterLeft}><Feather name="users" size={12} color="#9CA3AF" /><Text style={[styles.bookRole, { color: '#6B7280' }]}>{roleLabel}</Text></View>
+          <View style={styles.bookFooterRight}><Text style={[styles.bookBalance, { color: theme.tint }]}>{formatEGPShort((book as any).balance || 0)}</Text><Feather name="chevron-right" size={14} color={theme.tint} /></View>
         </View>
       </Pressable>
       
-      <IconPickerModal 
-        visible={showIconPicker} 
-        onClose={() => setShowIconPicker(false)} 
-        onSelectIcon={handleIconSelect}
-        currentIcon={book.icon || "book"}
-        theme={theme}
-        isDark={isDark}
-      />
+      <IconPickerModal visible={showIconPicker} onClose={() => setShowIconPicker(false)} onSelectIcon={handleIconSelect} currentIcon={book.icon || "book"} theme={theme} isDark={isDark} />
     </>
   );
 }
@@ -900,134 +794,233 @@ function BooksListView() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = Colors.light;
-  const { books, setActiveBook, deleteBook, updateBook, signOut } = useApp();
-  const { user } = useAuth();
+const { books, setActiveBook, deleteBook, updateBook, refreshBooks, activeBook } = useApp();
+  const { user, logout } = useAuth();
   const { t } = useLanguage();
   const [profileModalVisible, setProfileModalVisible] = useState(false);
-
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [bookToDelete, setBookToDelete] = useState<CashBook | null>(null);
   const [showCannotDeleteModal, setShowCannotDeleteModal] = useState(false);
   const [showSortModal, setShowSortModal] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>("lastUpdated");
   const [pendingSort, setPendingSort] = useState<SortOption>("lastUpdated");
-  const [showSignInModal, setShowSignInModal] = useState(false);
-  const [bookBalances, setBookBalances] = useState<Record<string, number>>({});
-  const [allBooksTotals, setAllBooksTotals] = useState({ totalBalance: 0, totalIncome: 0, totalExpense: 0 });
-  const [isLoadingTotals, setIsLoadingTotals] = useState(true);
+  const [profileName, setProfileName] = useState("");
+  const [profilePhoto, setProfilePhoto] = useState("");
+  const [isLoadingName, setIsLoadingName] = useState(true);
+  const [loading, setLoading] = useState(false);
+useFocusEffect(
+    useCallback(() => {
+      loadCurrency();
+    }, [])
+  );
+const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
 
-  // Debug user
-  useEffect(() => {
-    if (user) {
-      console.log("MY CURRENT USER ID IS:", user.id);
-    }
-  }, [user]);
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing books list");
+    setCurrencyRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
+// Add this state
+const [initialLoadDone, setInitialLoadDone] = useState(false);
 
-  // Get book balance function
-  const getBookBalance = useCallback(async (bookId: string) => {
-    if (!user || !user.id) return 0;
+// Add this useEffect to refresh once after initial load
+useEffect(() => {
+  // If no books found after 2 seconds, force a refresh
+  if (!initialLoadDone && books.length === 0 && user) {
+    const timer = setTimeout(async () => {
+      console.log("🔄 No books found, forcing refresh...");
+      await refreshBooks();
+      setInitialLoadDone(true);
+    }, 2000);
     
-    try {
-      const transactionsQuery = query(
-        collection(db, 'transactions'),
-        where('userId', '==', user.id),
-        where('bookId', '==', bookId)
-      );
-      const snapshot = await getDocs(transactionsQuery);
-      
-      let balance = 0;
-      snapshot.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.type === 'income') {
-          balance += data.amount || 0;
-        } else if (data.type === 'expense') {
-          balance -= data.amount || 0;
-        }
-      });
-      return balance;
-    } catch (error) {
-      console.error("Error calculating book balance:", error);
-      return 0;
-    }
-  }, [user]);
-
-  // Fetch all transactions totals
+    return () => clearTimeout(timer);
+  }
+}, [books.length, user, initialLoadDone, refreshBooks]);
+  // Load profile name and photo
   useEffect(() => {
-    const fetchAllTransactions = async () => {
-      if (!user || !user.id) {
-        console.log("No user or ID available yet");
-        setIsLoadingTotals(false);
+    const loadProfileData = async () => {
+      if (!user) {
+        console.log("No user object yet");
+        setIsLoadingName(false);
         return;
       }
       
-      setIsLoadingTotals(true);
+      const userId = user.id;
+      if (!userId) {
+        console.log("No user.id available");
+        setIsLoadingName(false);
+        return;
+      }
+      
       try {
-        const transactionsQuery = query(
-          collection(db, 'transactions'),
-          where('userId', '==', user.id)
-        );
-        const snapshot = await getDocs(transactionsQuery);
+        console.log("Loading profile for user ID:", userId);
+        const savedData = await AsyncStorage.getItem(`${STORAGE_KEY}_${userId}`);
+        console.log("Raw saved data:", savedData);
         
-        let totalIncome = 0;
-        let totalExpense = 0;
-        
-        snapshot.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.type === 'income') {
-            totalIncome += data.amount || 0;
-          } else if (data.type === 'expense') {
-            totalExpense += data.amount || 0;
-          }
-        });
-        
-        console.log("Fetched totals for user:", user.id, "Income:", totalIncome, "Expense:", totalExpense);
-        
-        setAllBooksTotals({
-          totalBalance: totalIncome - totalExpense,
-          totalIncome: totalIncome,
-          totalExpense: totalExpense
-        });
+        if (savedData) {
+          const profile = JSON.parse(savedData);
+          console.log("Parsed profile:", profile);
+          setProfileName(profile.name || "");
+          setProfilePhoto(profile.photo || "");
+        } else {
+          console.log("No saved data found, using fallback");
+          setProfileName(user.displayName || user.email?.split('@')[0] || "");
+          setProfilePhoto("");
+        }
       } catch (error) {
-        console.error("Failed to fetch transactions:", error);
+        console.error("Error loading profile:", error);
+        setProfileName(user.displayName || user.email?.split('@')[0] || "");
+        setProfilePhoto("");
       } finally {
-        setIsLoadingTotals(false);
+        setIsLoadingName(false);
+      }
+    };
+    
+    loadProfileData();
+  }, [user]);
+
+  const getGreetingName = () => {
+    if (profileName) {
+      return profileName.split(' ')[0];
+    }
+    if (user?.displayName) {
+      return user.displayName.split(' ')[0];
+    }
+    if (user?.email) {
+      return user.email.split('@')[0];
+    }
+    return "User";
+  };
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good Morning";
+    if (hour < 18) return "Good Afternoon";
+    return "Good Evening";
+  };
+
+  const handleDeleteAccount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const userRef = doc(db, 'users', user.id);
+      await deleteDoc(userRef);
+      
+      const booksQuery = query(collection(db, 'books'), where('userId', '==', user.id));
+      const booksSnapshot = await getDocs(booksQuery);
+      for (const bookDoc of booksSnapshot.docs) {
+        await deleteDoc(bookDoc.ref);
+      }
+      
+      const transactionsQuery = query(collection(db, 'transactions'), where('userId', '==', user.id));
+      const transactionsSnapshot = await getDocs(transactionsQuery);
+      for (const transactionDoc of transactionsSnapshot.docs) {
+        await deleteDoc(transactionDoc.ref);
+      }
+      
+      await user.delete();
+      await AsyncStorage.clear();
+      router.replace("/auth");
+    } catch (error) {
+      console.error("Error deleting account:", error);
+      Alert.alert("Error", "Failed to delete account. Please try again.");
+    }
+  }, [user]);
+
+  // Calculate total balance from all transactions
+  const [allBooksTotals, setAllBooksTotals] = useState({ totalBalance: 0, totalIncome: 0, totalExpense: 0 });
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const [isLoadingTransactions, setIsLoadingTransactions] = useState(true);
+
+  useEffect(() => {
+    const fetchAllTransactions = async () => {
+      if (!user) {
+        setIsLoadingTransactions(false);
+        return;
+      }
+      
+      setIsLoadingTransactions(true);
+      try {
+        const q = query(collection(db, 'transactions'), where('userId', '==', user.id));
+        const snapshot = await getDocs(q);
+        const fetchedTransactions: Transaction[] = [];
+        snapshot.forEach(doc => {
+          fetchedTransactions.push({ 
+            id: doc.id, 
+            ...doc.data(),
+            createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now()
+          } as Transaction);
+        });
+        setAllTransactions(fetchedTransactions);
+      } catch (error) {
+        console.error('Error fetching all transactions:', error);
+      } finally {
+        setIsLoadingTransactions(false);
       }
     };
     
     fetchAllTransactions();
   }, [user]);
 
-  // Load individual book balances
   useEffect(() => {
-    const loadAllBalances = async () => {
-      if (!user || books.length === 0) return;
-      
-      const balances: Record<string, number> = {};
-      for (const book of books) {
-        const balance = await getBookBalance(book.id);
-        balances[book.id] = balance;
-      }
-      setBookBalances(balances);
-    };
+    let totalIncome = 0;
+    let totalExpense = 0;
     
-    loadAllBalances();
-  }, [books, user, getBookBalance]);
+    allTransactions.forEach(transaction => {
+      if (transaction.type === 'income') {
+        totalIncome += transaction.amount;
+      } else if (transaction.type === 'expense') {
+        totalExpense += transaction.amount;
+      }
+    });
+    
+    setAllBooksTotals({
+      totalBalance: totalIncome - totalExpense,
+      totalIncome: totalIncome,
+      totalExpense: totalExpense
+    });
+  }, [allTransactions]);
+
+  const getBookBalance = useCallback((bookId: string) => {
+    let income = 0;
+    let expense = 0;
+    
+    allTransactions.forEach(transaction => {
+      if (transaction.bookId === bookId) {
+        if (transaction.type === 'income') {
+          income += transaction.amount;
+        } else if (transaction.type === 'expense') {
+          expense += transaction.amount;
+        }
+      }
+    });
+    
+    return income - expense;
+  }, [allTransactions]);
 
   const topPad = 40;
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
   
   const sortedBooks = useMemo(() => {
+    if (isLoadingTransactions) return [];
+    
     const sorted = [...books];
+    const booksWithBalance = sorted.map(book => ({
+      ...book,
+      balance: getBookBalance(book.id)
+    }));
+    
     switch (sortBy) {
-      case "nameAtoZ": sorted.sort((a, b) => a.name.localeCompare(b.name)); break;
-      case "balanceHighLow": sorted.sort((a, b) => (bookBalances[b.id] || 0) - (bookBalances[a.id] || 0)); break;
-      case "balanceLowHigh": sorted.sort((a, b) => (bookBalances[a.id] || 0) - (bookBalances[b.id] || 0)); break;
-      case "lastCreated": sorted.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); break;
-      default: sorted.sort((a, b) => ((b as any).updatedAt || b.createdAt || 0) - ((a as any).updatedAt || a.createdAt || 0)); break;
+      case "nameAtoZ": booksWithBalance.sort((a, b) => a.name.localeCompare(b.name)); break;
+      case "balanceHighLow": booksWithBalance.sort((a, b) => (b.balance ?? 0) - (a.balance ?? 0)); break;
+      case "balanceLowHigh": booksWithBalance.sort((a, b) => (a.balance ?? 0) - (b.balance ?? 0)); break;
+      case "lastCreated": booksWithBalance.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); break;
+      default: booksWithBalance.sort((a, b) => ((b as any).updatedAt || b.createdAt || 0) - ((a as any).updatedAt || a.createdAt || 0)); break;
     }
-    return sorted;
-  }, [books, sortBy, bookBalances]);
-
+    return booksWithBalance;
+  }, [books, sortBy, getBookBalance, isLoadingTransactions]);
+  
   const handleDeleteBook = useCallback((book: CashBook) => {
     if (book.role !== "owner") { setShowCannotDeleteModal(true); return; }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -1040,92 +1033,118 @@ function BooksListView() {
   const handleOpenBook = useCallback((book: CashBook) => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveBook(book); }, [setActiveBook]);
   const handleIconChange = useCallback((bookId: string, icon: string) => { updateBook(bookId, { icon } as any); }, [updateBook]);
   
-  const handleCreateBookPress = useCallback(() => {
-    if (!user) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setShowSignInModal(true);
-      AsyncStorage.setItem('redirectAfterLogin', '/create-book');
-    } else {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      router.push("/create-book");
+  const handleLogout = useCallback(async () => {
+    setProfileModalVisible(false);
+    // REMOVED AsyncStorage.clear() - data persists after logout
+    await logout();
+    router.dismissAll();
+    router.replace("/auth");
+  }, [logout]);
+
+  // Refresh profile data after saving
+  const refreshProfileData = useCallback(async () => {
+    if (!user) return;
+    try {
+      const savedData = await AsyncStorage.getItem(`${STORAGE_KEY}_${user.id}`);
+      if (savedData) {
+        const profile = JSON.parse(savedData);
+        setProfileName(profile.name || "");
+        setProfilePhoto(profile.photo || "");
+      }
+    } catch (error) {
+      console.error("Error refreshing profile:", error);
     }
   }, [user]);
 
-  const handleSignIn = useCallback(() => {
-    setShowSignInModal(false);
-    router.push("/auth");
-  }, []);
-  
-  const handleLogout = useCallback(() => {
-  setProfileModalVisible(false);
-  
-  AsyncStorage.clear();
-  
-  if (signOut) {
-    signOut();
-  }
-  
-  // Force navigation and prevent going back
-  router.dismissAll();
-  router.replace("/auth");
-}, [signOut]);
+  const chartData = [30, 32, 31, 34, 32, 35, 36];
+  const chartHeight = 140;
+  const chartWidth = screenWidth - 100;
+  const padding = 20;
+  const maxValue = Math.max(...chartData); 
+  const minValue = Math.min(...chartData);
+  const getYPosition = (value: number) => {
+    const availableHeight = chartHeight - (padding * 2);
+    return padding + availableHeight - ((value - minValue) / (maxValue - minValue || 1)) * availableHeight;
+  };
+
+  const generateLinePath = () => {
+    const stepX = chartWidth / (chartData.length - 1);
+    let path = "";
+    chartData.forEach((value, index) => {
+      const x = index * stepX;
+      const y = getYPosition(value);
+      if (index === 0) path += `M ${x} ${y}`;
+      else path += ` L ${x} ${y}`;
+    });
+    return path;
+  };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
       <ProfileModal 
         visible={profileModalVisible} 
         onClose={() => setProfileModalVisible(false)} 
         theme={theme} 
-        isDark={isDark}
-        onLogout={handleLogout}
+        isDark={isDark} 
+        onLogout={handleLogout} 
+        onDeleteAccount={handleDeleteAccount}
+        onProfileUpdate={refreshProfileData}
       />
       
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: topPad + 16, paddingBottom: bottomPad + 100 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]} showsVerticalScrollIndicator={false}>
         
-        <View style={[styles.headerRow, { marginBottom: 20, marginTop: 0 }]}>
-          <Image 
-            source={{ uri: "https://i.ibb.co/b5k4pDfK/Whats-App-Image-2026-04-17-at-1-27-37-AM-removebg-preview.jpg" }}
-            style={styles.headerLogo}
-            resizeMode="contain"
-          />
-          <View style={styles.headerBtns}>
-            <Pressable onPress={() => setProfileModalVisible(true)} style={({ pressed }) => [styles.profileBtn, { backgroundColor: '#3B82F6', opacity: pressed ? 0.8 : 1 }]}>
-              <Feather name="user" size={20} color="#FFFFFF" />
-            </Pressable>
-          </View>
+        <View style={[styles.headerRow, { marginTop: 0 }]}>
+          <Image source={favicon} style={styles.headerLogo} resizeMode="contain" />
+          <Pressable onPress={() => setProfileModalVisible(true)} style={({ pressed }) => [styles.notificationBtn, { opacity: pressed ? 0.8 : 1 }]}>
+            {profilePhoto ? (
+              <Image source={{ uri: profilePhoto }} style={styles.headerAvatar} />
+            ) : (
+              <Feather name="user" size={22} color="#3B82F6" />
+            )}
+            <View style={styles.notificationBadge} />
+          </Pressable>
         </View>
         
-        <Text style={[styles.myBooksTitle, { color: "#000000" }]}>{t("myBooks")}</Text>
+        <View style={styles.greetingSection}>
+          <Text style={styles.greetingText}>{getGreeting()},</Text>
+          <Text style={styles.userNameText}>{getGreetingName()}!</Text>
+        </View>
 
-        <View style={styles.balanceCard}>
-          <Image 
-            source={{ uri: "https://i.ibb.co/ZRLnt45M/DDDD-removebg-preview.png" }} 
-            style={{ 
-              position: "absolute", 
-              bottom: 0, 
-              right: 0,
-              width: 250,
-              height: 130,
-              resizeMode: "contain", 
-              opacity: 1,
-              zIndex: 1
-            }} 
-          />
-          
-          <View style={{ padding: 0, zIndex: 2 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-              <Text style={{ color: "#6B7280", fontSize: 14, fontWeight: '500' }}>
-                Total Balance (All Books)
-              </Text>
-              <Text style={{ fontSize: 16, color: (allBooksTotals.totalBalance || 0) >= 0 ? "#10B981" : "#EF4444" }}>
-                {(allBooksTotals.totalBalance || 0) >= 0 ? "↗" : "↘"}
-              </Text>
+        <View style={styles.totalBalanceCard}>
+  <LinearGradient colors={['#3B82F6', '#2563EB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceCardGradient} />
+  <View style={styles.balanceCardContent}>
+    <Text style={styles.balanceLabel}>Total Balance</Text>
+    <Text style={styles.balanceAmount}>{getCurrencyCode()} {(allBooksTotals.totalBalance || 0).toLocaleString('en-EG')}</Text>
+    
+    <View style={styles.chartWrapper}>
+              <Svg height={chartHeight} width="100%" viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
+                <Defs>
+                  <SvgLinearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.5" />
+                    <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+                  </SvgLinearGradient>
+                </Defs>
+                <Path d={`${generateLinePath()} L ${chartWidth} ${chartHeight} L 0 ${chartHeight} Z`} fill="url(#areaGradient)" opacity="0.3" />
+                <Path d={generateLinePath()} fill="none" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                <Path d={`M ${chartWidth - 12} ${getYPosition(chartData[chartData.length - 1]) - 5} L ${chartWidth} ${getYPosition(chartData[chartData.length - 1])} L ${chartWidth - 12} ${getYPosition(chartData[chartData.length - 1]) + 5} Z`} fill="#FFFFFF" />
+                {chartData.map((value, index) => {
+                  const stepX = chartWidth / (chartData.length - 1);
+                  const x = index * stepX;
+                  const y = getYPosition(value);
+                  return (
+                    <React.Fragment key={index}>
+                      <Circle cx={x} cy={y} r="6" fill="#FFFFFF" opacity="0.3" />
+                      <Circle cx={x} cy={y} r="3.5" fill="#FFFFFF" />
+                      <Circle cx={x} cy={y} r="1.5" fill="#3B82F6" />
+                    </React.Fragment>
+                  );
+                })}
+              </Svg>
             </View>
-            <Text style={{ color: "#111827", fontSize: 32, fontWeight: '700', marginTop: 8 }}>
-              ₹ {(allBooksTotals.totalBalance || 0).toLocaleString('en-IN')}
-            </Text>
           </View>
         </View>
+
+        <Text style={[styles.myBooksTitle, { color: "#000000" }]}>{t("myBooks")}</Text>
 
         {books.length === 0 ? (
           <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -1135,204 +1154,166 @@ function BooksListView() {
         ) : (
           <View style={styles.booksGrid}>
             {sortedBooks.map((book) => (
-              <BookCard 
-                key={book.id} 
-                book={book} 
-                theme={theme} 
-                onPress={() => handleOpenBook(book)} 
-                onLongPress={() => handleDeleteBook(book)} 
-                onIconChange={handleIconChange}
-                balance={bookBalances[book.id] || 0}
-              />
+  <View key={`${book.id}-${currencyRefreshKey}`} style={styles.bookCardWrapper}>
+                <View style={styles.bookCardHeader}>
+                  <View style={styles.bookHeaderLeft}>
+                    <Pressable onPress={() => handleIconChange(book.id, AVAILABLE_ICONS[(AVAILABLE_ICONS.indexOf(book.icon || "book") + 1) % AVAILABLE_ICONS.length])} style={styles.bookIconSmall}>
+                      <Feather name={(book.icon as any) || "book"} size={18} color="#3B82F6" />
+                    </Pressable>
+                    <Text style={styles.bookNameHeader} numberOfLines={1}>{book.name}</Text>
+                  </View>
+                </View>
+                <View style={styles.bookTypeContainer}>
+                  <View style={styles.bookTypeBadge}>
+                    <Text style={[styles.bookTypeText, { color: book.isCloud ? '#3B82F6' : '#6B7280' }]}>{book.isCloud ? "Business" : "Personal"}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.bookCardBody}>
+                  <View style={styles.balanceSection}>
+                    <Text style={styles.balanceLabelSmall}>Balance</Text>
+                    <Text style={styles.balanceAmountLarge}>{getCurrencyCode()} {(book.balance || 0).toLocaleString('en-EG')}</Text>
+                  </View>
+                  <View style={styles.bookActionsRow}>
+                    <Pressable
+                      onPress={() => handleDeleteBook(book)}
+                      style={({ pressed }) => [
+                        styles.deleteButtonSmall,
+                        { opacity: pressed ? 0.7 : 1 }
+                      ]}
+                    >
+                      <Feather name="trash-2" size={18} color="#EF4444" />
+                    </Pressable>
+                    <Pressable onPress={() => handleOpenBook(book)} style={styles.arrowButton}>
+                      <Feather name="arrow-right" size={24} color="#3B82F6" />
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
             ))}
           </View>
         )}
       </ScrollView>
-
-      <Pressable 
-        onPress={handleCreateBookPress}
-        style={({ pressed }) => [styles.fabOuter, { bottom: bottomPad + 80, transform: [{ scale: pressed ? 0.93 : 1 }] }]}
-      >
-        <View style={styles.fabWhiteOuterBorder}>
-          <View style={styles.fabWhiteInnerBorder}>
-            <View style={styles.fabBlueBackground}>
-              <Feather name="plus" size={28} color="#FFFFFF" />
-            </View>
-          </View>
-        </View>
+      
+      <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/create-book"); }} style={({ pressed }) => [styles.createBookBtnFixed, { opacity: pressed ? 0.85 : 1 }]}>
+        <Feather name="plus" size={20} color="#FFFFFF" />
+        <Text style={styles.createBookBtnText}>Create New Business</Text>
       </Pressable>
-
-      <Modal visible={showSignInModal} transparent animationType="fade" onRequestClose={() => setShowSignInModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <View style={{ alignItems: 'center', marginBottom: 16 }}>
-              <View style={[styles.profileAvatar, { backgroundColor: '#3B82F6', width: 60, height: 60, borderRadius: 30 }]}>
-                <Feather name="log-in" size={28} color="#FFFFFF" />
-              </View>
-            </View>
-            <Text style={[styles.modalTitle, { color: theme.text, textAlign: 'center' }]}>
-              Sign In Required
-            </Text>
-            <Text style={[styles.modalMessage, { color: theme.textSecondary, textAlign: 'center' }]}>
-              Please sign in to create a new book and manage your finances.
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable 
-                onPress={() => setShowSignInModal(false)} 
-                style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1, flex: 1 }]}
-              >
-                <Text style={[styles.modalBtnText, { color: theme.text }]}>Cancel</Text>
-              </Pressable>
-              <Pressable 
-                onPress={handleSignIn} 
-                style={({ pressed }) => [styles.modalBtn, { backgroundColor: '#3B82F6', opacity: pressed ? 0.8 : 1, flex: 1 }]}
-              >
-                <Text style={[styles.modalBtnText, { color: "#FFF" }]}>Sign In</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
+      
       <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={handleCancelDelete}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{t("deleteBook")}</Text>
-            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{bookToDelete ? t("deleteBookConfirm", { name: bookToDelete.name }) : ""}</Text>
-            <View style={styles.modalActions}>
-              <Pressable onPress={handleCancelDelete} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}>
-                <Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text>
-              </Pressable>
-              <Pressable onPress={handleConfirmDelete} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 }]}>
-                <Text style={[styles.modalBtnText, { color: "#FFF" }]}>{t("delete")}</Text>
-              </Pressable>
-            </View>
+        <View style={styles.modalOverlay}><View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>{t("deleteBook")}</Text>
+          <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{bookToDelete ? t("deleteBookConfirm", { name: bookToDelete.name }) : ""}</Text>
+          <View style={styles.modalActions}>
+            <Pressable onPress={handleCancelDelete} style={[styles.modalBtn, { backgroundColor: theme.surface }]}><Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text></Pressable>
+            <Pressable onPress={handleConfirmDelete} style={[styles.modalBtn, { backgroundColor: theme.expense }]}><Text style={[styles.modalBtnText, { color: "#FFF" }]}>{t("delete")}</Text></Pressable>
           </View>
-        </View>
+        </View></View>
       </Modal>
 
       <Modal visible={showCannotDeleteModal} transparent animationType="fade" onRequestClose={() => setShowCannotDeleteModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>{t("cannotDelete")}</Text>
-            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{t("onlyOwnerDelete")}</Text>
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setShowCannotDeleteModal(false)} style={({ pressed }) => [styles.modalBtn, { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 }]}>
-                <Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+        <View style={styles.modalOverlay}><View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>{t("cannotDelete")}</Text>
+          <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>{t("onlyOwnerDelete")}</Text>
+          <View style={styles.modalActions}><Pressable onPress={() => setShowCannotDeleteModal(false)} style={[styles.modalBtn, { backgroundColor: theme.surface }]}><Text style={[styles.modalBtnText, { color: theme.text }]}>{t("cancel")}</Text></Pressable></View>
+        </View></View>
       </Modal>
 
       <Modal visible={showSortModal} transparent animationType="slide" onRequestClose={() => setShowSortModal(false)}>
         <Pressable style={styles.sortModalOverlay} onPress={() => setShowSortModal(false)}>
           <Pressable style={[styles.sortModalContent, { backgroundColor: theme.card }]} onPress={() => {}}>
-            <View style={styles.sortModalHeader}>
-              <Text style={[styles.sortModalTitle, { color: theme.text }]}>{t("sortBooksBy")}</Text>
-              <Pressable onPress={() => setShowSortModal(false)} hitSlop={8}>
-                <Feather name="x" size={20} color={theme.textSecondary} />
-              </Pressable>
-            </View>
-            {([{ key: "lastUpdated" as SortOption, label: t("lastUpdated"), icon: "clock" }, 
-               { key: "nameAtoZ" as SortOption, label: t("nameAtoZ"), icon: "type" }, 
-               { key: "balanceHighLow" as SortOption, label: t("netBalanceHighLow"), icon: "trending-up" }, 
-               { key: "balanceLowHigh" as SortOption, label: t("netBalanceLowHigh"), icon: "trending-down" }, 
-               { key: "lastCreated" as SortOption, label: t("lastCreated"), icon: "calendar" }]).map((opt) => (
-              <Pressable key={opt.key} onPress={() => setPendingSort(opt.key)} style={({ pressed }) => [styles.sortOption, { backgroundColor: pendingSort === opt.key ? theme.tint + "12" : "transparent", borderColor: pendingSort === opt.key ? theme.tint : theme.border, opacity: pressed ? 0.7 : 1 }]}>
-                <View style={[styles.sortOptionRadio, { borderColor: pendingSort === opt.key ? theme.tint : theme.border }]}>
-                  {pendingSort === opt.key && <View style={[styles.sortOptionRadioInner, { backgroundColor: theme.tint }]} />}
-                </View>
+            <View style={styles.sortModalHeader}><Text style={[styles.sortModalTitle, { color: theme.text }]}>{t("sortBooksBy")}</Text><Pressable onPress={() => setShowSortModal(false)} hitSlop={8}><Feather name="x" size={20} color={theme.textSecondary} /></Pressable></View>
+            {([{ key: "lastUpdated" as SortOption, label: t("lastUpdated"), icon: "clock" }, { key: "nameAtoZ" as SortOption, label: t("nameAtoZ"), icon: "type" }, { key: "balanceHighLow" as SortOption, label: t("netBalanceHighLow"), icon: "trending-up" }, { key: "balanceLowHigh" as SortOption, label: t("netBalanceLowHigh"), icon: "trending-down" }, { key: "lastCreated" as SortOption, label: t("lastCreated"), icon: "calendar" }]).map((opt) => (
+              <Pressable key={opt.key} onPress={() => setPendingSort(opt.key)} style={[styles.sortOption, { backgroundColor: pendingSort === opt.key ? theme.tint + "12" : "transparent", borderColor: pendingSort === opt.key ? theme.tint : theme.border }]}>
+                <View style={[styles.sortOptionRadio, { borderColor: pendingSort === opt.key ? theme.tint : theme.border }]}>{pendingSort === opt.key && <View style={[styles.sortOptionRadioInner, { backgroundColor: theme.tint }]} />}</View>
                 <Feather name={opt.icon as any} size={16} color={pendingSort === opt.key ? theme.tint : theme.textSecondary} />
                 <Text style={[styles.sortOptionText, { color: pendingSort === opt.key ? theme.tint : theme.text }]}>{opt.label}</Text>
               </Pressable>
             ))}
-            <Pressable onPress={() => { setSortBy(pendingSort); setShowSortModal(false); Haptics.selectionAsync(); }} style={({ pressed }) => [styles.sortApplyBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.85 : 1 }]}>
-              <Text style={[styles.sortApplyBtnText]}>{t("apply")}</Text>
-            </Pressable>
+            <Pressable onPress={() => { setSortBy(pendingSort); setShowSortModal(false); Haptics.selectionAsync(); }} style={[styles.sortApplyBtn, { backgroundColor: theme.tint }]}><Text style={[styles.sortApplyBtnText]}>{t("apply")}</Text></Pressable>
           </Pressable>
         </Pressable>
       </Modal>
     </View>
   );
 }
-
 // ==================== MAIN EXPORT ====================
 export default function OverviewScreen() {
   const { activeBook } = useApp();
-  if (activeBook) { return <BookDashboard />; }
+  if (activeBook) return <BookDashboard />;
   return <BooksListView />;
 }
 
 // ==================== STYLES ====================
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: StyleSheet.hairlineWidth },
+  backBtn: { padding: 4, width: 40 },
+  title: { fontSize: 20, flex: 1, textAlign: "center" },
+  addBtn: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  filterRow: { flexDirection: "row", paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth },
+  filterTab: { paddingVertical: 12, paddingHorizontal: 16, borderBottomWidth: 2, borderBottomColor: "transparent" },
+  filterLabel: { fontSize: 15 },
+  list: { paddingHorizontal: 20, paddingTop: 8 },
+  emptyContainer: { flex: 1 },
+  emptyContent: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingTop: 80 },
+  emptyText: { fontSize: 15 },
+  emptyBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 4 },
+  emptyBtnTxt: { color: "#FFF", fontSize: 15 },
+  separator: { height: StyleSheet.hairlineWidth },
+  txItem: { flexDirection: "row", alignItems: "center", paddingVertical: 14, gap: 12 },
+  txIcon: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  txContent: { flex: 1 },
+  txCatRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  txCat: { fontSize: 15, marginBottom: 3 },
+  txMeta: { flexDirection: "row", alignItems: "center", gap: 4, flexWrap: "wrap" },
+  txDate: { fontSize: 12 },
+  txPayMode: { fontSize: 12, flexShrink: 1 },
+  dot: { fontSize: 12 },
+  txNote: { fontSize: 12, flexShrink: 1 },
+  txRight: { alignItems: "flex-end" },
+  txAmt: { fontSize: 15 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 32 },
+  modalContent: { width: "100%", maxWidth: 340, borderRadius: 20, padding: 24 },
+  modalTitle: { fontSize: 18, marginBottom: 8 },
+  modalMessage: { fontSize: 14, lineHeight: 20, marginBottom: 24 },
+  modalActions: { flexDirection: "row", gap: 12 },
+  modalBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
+  modalBtnText: { fontSize: 15 },
   scroll: { paddingHorizontal: 20 },
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20, marginTop: 0 },
-  logoText: { fontSize: 24 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: -25, marginLeft: -20},
   myBooksTitle: { fontSize: 34, marginBottom: 20, textAlign: "left" },
-  
-  balanceCard: {
-    borderRadius: 22,  // Changed from 24 to match bookCardInner
-    padding: 40,       // Changed from 28 to match bookCardInner
-    gap: 12,           // Added to match bookCardInner
-    backgroundColor: '#FFFFFF',  // Changed from rgba to solid white
-    overflow: 'hidden',
-    position: 'relative',
-    
-    // Borders only on right and bottom (matching bookCardInner)
-    borderRightWidth: 10,
-    borderBottomWidth: 10,
-    borderLeftWidth: 0.1,
-    borderTopWidth: 0.1,
-    borderRightColor: 'rgba(0, 0, 0, 0.1)',
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-    borderLeftColor: 'rgba(0, 0, 0, 0.1)',
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-    
-    // Shadow effects matching bookCardInner
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    
-    marginBottom: 24,
-},
-  glassReflection: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-  },
-  glassHighlight: {
-    position: 'absolute',
-    top: 5,
-    left: 10,
-    right: 10,
-    height: 2,
-    borderRadius: 2,
-  },
-  summaryCard: {
-  borderRadius: 24,
-  paddingTop: 16,
-  paddingLeft: 16,
-  paddingRight: 16,
-  paddingBottom: 8,
-  marginBottom: 16,
-  overflow: 'hidden',
-  backgroundColor: '#FFFFFF',  // Solid white background
-},
-  
-  // Profile Modal Styles
-  profileModalContent: {
-    borderRadius: 24,
-    padding: 24,
-    maxHeight: "80%",
-  },
+  headerLogo: { width: 160, height: 160, resizeMode: 'contain' },
+  notificationBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: '#F3F4F6', position: 'relative' },
+  notificationBadge: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' },
+  greetingSection: { marginTop:-35, marginBottom: 28 },
+  greetingText: { fontSize: 16, color: '#6B7280', fontFamily: "Inter_400Regular" },
+  userNameText: { fontSize: 28, color: '#111827', fontFamily: "Inter_700Bold", marginTop: 4 },
+  totalBalanceCard: { borderRadius: 24, marginBottom: 20, overflow: 'hidden', shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 5}, shadowOpacity: 0.25, shadowRadius: 16, elevation: 12, minHeight: 100, paddingBottom: -0 },
+  balanceCardGradient: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  balanceCardContent: { padding: 20 },
+  balanceLabel: { fontSize: 14, color: 'rgba(255,255,255,0.8)', fontFamily: "Inter_400Regular"},
+  balanceAmount: { fontSize: 20, color: '#FFFFFF', fontFamily: "Inter_700Bold"},
+  chartWrapper: { marginTop: 8 },
+  bookCardWrapper: { backgroundColor: '#FFFFFF', borderRadius: 16, marginBottom: 12, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, borderWidth: 1, borderColor: '#F0F0F0' },
+  bookCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  bookHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bookIconSmall: { width: 40, height: 40, borderRadius: 8, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center', marginTop: 20 },
+  bookNameHeader: { fontSize: 16, color: '#111827', fontFamily: "Inter_600SemiBold", flex: 1, marginTop: -5 },
+  bookMenuBtn: { padding: 4 },
+  bookCardBody: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'},
+  balanceSection: { flex: 1 },
+  balanceLabelSmall: { fontSize: 12, color: '#9CA3AF', fontFamily: "Inter_400Regular"},
+  balanceAmountLarge: { fontSize: 20, color: '#3B82F6', fontFamily: "Inter_700Bold" },
+  arrowButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#EFF6FF', alignItems: 'center', justifyContent: 'center' },
+  createBookBtnFixed: { position: 'absolute', bottom: 110, left: 55, right: 55, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 12, backgroundColor: '#3B82F6', shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  createBookBtnText: { fontSize: 16, color: '#FFFFFF', fontFamily: "Inter_600SemiBold" },
+  bookTypeContainer: { marginBottom: 12 },
+  bookTypeBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, marginLeft: 40, marginTop: -40 },
+  bookTypeText: { fontSize: 11, fontWeight: '500' },
+  emptyBox: { borderRadius: 20, borderWidth: 1, padding: 40, alignItems: "center", gap: 12 },
+  booksGrid: { gap: 20, width: '100%' },
+  profileModalContent: { borderRadius: 24, padding: 24, maxHeight: "80%" },
   profileModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
   profileModalTitle: { fontSize: 20 },
   profileField: { marginBottom: 16 },
@@ -1342,9 +1323,10 @@ const styles = StyleSheet.create({
   profileCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
   profileSaveBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
   profileBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  
-  profileUserSection: { alignItems: "center", marginBottom: 24 },
+  profileUserSection: { alignItems: "center", marginBottom: 24, position: 'relative' },
   profileAvatar: { width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  profileAvatarImage: { width: 80, height: 80, borderRadius: 40, marginBottom: 12 },
+  editPhotoBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#3B82F6', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#FFFFFF' },
   profileEmail: { fontSize: 14, marginBottom: 8 },
   profileDivider: { height: 1, marginVertical: 20 },
   profileLogoutBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, paddingVertical: 14, borderRadius: 12, borderWidth: 1, marginBottom: 20 },
@@ -1354,265 +1336,11 @@ const styles = StyleSheet.create({
   profileInfoValue: { fontSize: 14, flex: 2, textAlign: "right" },
   profileEditBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12, borderRadius: 12, marginTop: 16 },
   profileEditBtnText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
-  
-  // Icon Picker Styles
   iconPickerContent: { width: "90%", maxWidth: 400, borderRadius: 24, padding: 20, maxHeight: "80%" },
   iconPickerHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
   iconPickerTitle: { fontSize: 20, fontFamily: "Inter_700Bold" },
   iconGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 12 },
   iconOption: { width: 56, height: 56, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  
-  // FAB with Double Border
-  // FAB with Blue Color & White Double Borders
-fabOuter: {
-  position: "absolute",
-  right: 20,
-  width: 68,
-  height: 68,
-  borderRadius: 34,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 8 },
-  shadowOpacity: 0.35,
-  shadowRadius: 16,
-  elevation: 12,
-  top: 550
-},
-fabWhiteOuterBorder: {
-  width: 66,
-  height: 68,
-  borderRadius: 34,
-  backgroundColor: '#3B82F6',
-  padding: 0.40,
-},
-fabWhiteInnerBorder: {
-  width: 62,
-  height: 62,
-  borderRadius: 32,
-  backgroundColor: '#FFFFFF',
-  padding: 0.40,
-},
-fabBlueBackground: {
-  width: 60,
-  height: 60,
-  borderRadius: 30,
-  backgroundColor: '#3B82F6',
-  alignItems: "center",
-  justifyContent: "center",
-},
-  
-  // Book Card Styles
-  bookCardOuter: {
-    borderRadius: 24,
-    padding: 2,
-    backgroundColor: 'transparent',
-    width: '100%',
-  },
-  bookCardGradientBorder: {
-    borderRadius: 24,
-    padding: 10,
-    backgroundColor: 'transparent',
-  },
-  bookCardInner: {
-    borderRadius: 22,
-    padding: 20,
-    gap: 12,
-    backgroundColor: '#FFFFFF',
-    overflow: 'hidden',
-    position: 'relative',
-    // Remove these two lines:
-    // borderWidth: 1,
-    // borderColor: 'rgba(0, 0, 0, 0.08)',
-    
-    // Add individual borders for RIGHT and BOTTOM only:
-    borderRightWidth: 10,
-    borderBottomWidth: 10,
-    borderLeftWidth: 0.1,
-    borderTopWidth: 0.1,
-    borderRightColor: 'rgba(0, 0, 0, 0.1)',
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-    borderLeftColor: 'rgba(0, 0, 0, 0.1)',
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-    
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-},
-  bookCardHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '40%',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    zIndex: 1,
-    pointerEvents: 'none',
-  },
-  bookCardShadow: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: '30%',
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
-    zIndex: 1,
-    pointerEvents: 'none',
-  },
-  bookCardLeftEdge: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: 3,
-    borderTopLeftRadius: 22,
-    borderBottomLeftRadius: 22,
-    zIndex: 1,
-    pointerEvents: 'none',
-  },
-  bookCardTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    zIndex: 2,
-  },bookIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    // Remove any backgroundColor
-    // Remove any shadow
-},
-
-bookBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    // Remove any backgroundColor
-    // Remove any shadow
-},
-  bookBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  bookName: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 8,
-    zIndex: 2,
-  },
-  bookDesc: {
-    fontSize: 13,
-    lineHeight: 19,
-    zIndex: 2,
-  },
-  bookFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 8,
-    zIndex: 2,
-  },
-  bookFooterLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  bookFooterRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  bookRole: {
-    fontSize: 12,
-    textTransform: "capitalize",
-  },
-  bookBalance: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  booksGrid: {
-    gap: 20,
-    width: '100%',
-  },
-  headerLogo: {
-    width: 160,
-    height: 160,
-    resizeMode: 'contain',
-  },
-  profileBtn: { 
-    width: 40, 
-    height: 40, 
-    borderRadius: 20, 
-    alignItems: "center", 
-    justifyContent: "center",
-    backgroundColor: '#3B82F6',
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  headerBtns: { flexDirection: "row", gap: 8 },
-  emptyBox: { borderRadius: 20, borderWidth: 1, padding: 40, alignItems: "center", gap: 12 },
-  emptyText: { fontSize: 14, textAlign: "center", lineHeight: 22 },
-  filterBar: { paddingVertical: 8 },
-  filterBarContent: { paddingHorizontal: 16, gap: 8, flexDirection: "row", marginBottom: 10 },
-  filterChip: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    gap: 4, 
-    paddingHorizontal: 12, 
-    paddingVertical: 8,
-    borderRadius: 8, 
-    borderWidth: 1,
-  },
-  filterChipText: { fontSize: 13 },
-  dashHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 12, gap: 12 },
-  dashHeaderCenter: { flex: 1 },
-  dashTitle: { fontSize: 18 },
-  dashHeaderRight: { flexDirection: "row", alignItems: "center", gap: 16 },
-  dashContent: { paddingHorizontal: 16, paddingTop: 16 },
-  summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 6 },
-  summaryDivider: { height: StyleSheet.hairlineWidth, marginVertical: 4 },
-  summaryLabel: { fontSize: 15 },
-  summaryValue: { fontSize: 22 },
-  summaryIncome: { fontSize: 16 },
-  summaryExpense: { fontSize: 16 },
-  entryCount: { textAlign: "center", fontSize: 13, marginBottom: 12 },
-  dateHeader: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 },
-  dateHeaderText: { fontSize: 13 },
-  entryRow: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(128,128,128,0.15)" },
-  entryLeft: { flex: 1, gap: 4 },
-  entryBadgeRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  paymentBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 5, borderWidth: 1 },
-  paymentBadgeText: { fontSize: 10 },
-  categoryBadge: { alignSelf: "flex-start", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
-  categoryBadgeText: { fontSize: 12 },
-  entryNote: { fontSize: 14, marginTop: 2 },
-  entryMeta: { fontSize: 11, marginTop: 2 },
-  entryRight: { alignItems: "flex-end", justifyContent: "center", marginLeft: 12 },
-  entryAmount: { fontSize: 17 },
-  entryBalance: { fontSize: 11, marginTop: 2 },
-  bottomBar: { flexDirection: "row", paddingHorizontal: 16, paddingTop: 10, gap: 8, borderTopWidth: StyleSheet.hairlineWidth },
-  cashInBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, borderRadius: 8, gap: 6 },
-  cashOutBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 14, borderRadius: 8, gap: 6 },
-  cashBtnText: { color: "#FFFFFF", fontSize: 15 },
-  menuOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.3)" },
-  menuCard: { position: "absolute", right: 16, minWidth: 200, borderRadius: 12, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, overflow: "hidden" },
-  menuDivider: { height: StyleSheet.hairlineWidth },
-  menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
-  menuItemText: { fontSize: 15 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 32 },
-  modalContent: { width: "100%", maxWidth: 340, borderRadius: 20, padding: 24 },
-  modalTitle: { fontSize: 18, marginBottom: 8 },
-  modalMessage: { fontSize: 14, lineHeight: 20, marginBottom: 24 },
-  modalActions: { flexDirection: "row", gap: 12 },
-  modalBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
-  modalBtnText: { fontSize: 15 },
   sortModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sortModalContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 34 },
   sortModalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
@@ -1623,148 +1351,34 @@ bookBadge: {
   sortOptionText: { fontSize: 15, flex: 1 },
   sortApplyBtn: { marginTop: 8, paddingVertical: 14, borderRadius: 10, alignItems: "center" },
   sortApplyBtnText: { color: "#FFF", fontSize: 15 },
-  reportImage: { width: 500, height: 80, marginTop: 50, backgroundColor: "transparent", resizeMode: "contain" },
-// Filter Button
-filterButton: {
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  paddingHorizontal: 20,
-  paddingVertical: 12,
-  borderRadius: 30,
-  borderWidth: 1,
-  marginHorizontal: 16,
-  marginVertical: 12,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.05,
-  shadowRadius: 4,
-  elevation: 2,
-},
-filterButtonText: {
-  fontSize: 15,
-  fontFamily: "Inter_600SemiBold",
-},
-filterBadge: {
-  fontSize: 12,
-  fontWeight: "400",
-},
-clearFilterIcon: {
-  marginLeft: 4,
-  padding: 2,
-},
-
-// Filter Modal
-filterModalOverlay: {
-  flex: 1,
-  backgroundColor: "rgba(0,0,0,0.5)",
-  justifyContent: "flex-end",
-},
-filterModalContent: {
-  borderTopLeftRadius: 24,
-  borderTopRightRadius: 24,
-  padding: 24,
-  maxHeight: "85%",
-},
-filterModalHeader: {
-  flexDirection: "row",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: 24,
-},
-filterModalTitle: {
-  fontSize: 20,
-},
-filterSectionLabel: {
-  fontSize: 14,
-  marginBottom: 12,
-},
-filterOptionsRow: {
-  flexDirection: "row",
-  gap: 12,
-  marginBottom: 8,
-},
-filterOption: {
-  flex: 1,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  paddingVertical: 12,
-  paddingHorizontal: 12,
-  borderRadius: 12,
-  borderWidth: 1,
-},
-filterOptionText: {
-  fontSize: 14,
-  fontFamily: "Inter_500Medium",
-},
-filterOptionsGrid: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  gap: 10,
-  marginBottom: 8,
-},
-filterOptionGrid: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 8,
-  paddingVertical: 10,
-  paddingHorizontal: 14,
-  borderRadius: 10,
-  borderWidth: 1,
-  minWidth: "30%",
-},
-filterOptionGridText: {
-  fontSize: 13,
-  fontFamily: "Inter_500Medium",
-},
-activeFiltersSummary: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 8,
-  padding: 12,
-  borderRadius: 10,
-  borderWidth: 1,
-  marginTop: 20,
-  marginBottom: 8,
-},
-activeFiltersText: {
-  fontSize: 12,
-  flex: 1,
-},
-filterModalActions: {
-  flexDirection: "row",
-  gap: 12,
-  marginTop: 24,
-  marginBottom: 8,
-},
-filterResetBtn: {
-  flex: 1,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  paddingVertical: 14,
-  borderRadius: 12,
-  borderWidth: 1,
-},
-filterResetText: {
-  fontSize: 15,
-  fontFamily: "Inter_600SemiBold",
-},
-filterApplyBtn: {
-  flex: 2,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  paddingVertical: 14,
-  borderRadius: 12,
-},
-filterApplyText: {
-  fontSize: 15,
-  fontFamily: "Inter_600SemiBold",
+  bookCardInner: { borderRadius: 22, padding: 20, gap: 12, backgroundColor: '#FFFFFF', overflow: 'hidden', position: 'relative', borderRightWidth: 10, borderBottomWidth: 10, borderLeftWidth: 0.1, borderTopWidth: 0.1, borderRightColor: 'rgba(0,0,0,0.1)', borderTopColor: 'rgba(0,0,0,0.1)', borderLeftColor: 'rgba(0,0,0,0.1)', borderBottomColor: 'rgba(0,0,0,0.1)', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+  bookCardHighlight: { position: 'absolute', top: 0, left: 0, right: 0, height: '40%', borderTopLeftRadius: 22, borderTopRightRadius: 22, zIndex: 1, pointerEvents: 'none' },
+  bookCardShadow: { position: 'absolute', bottom: 0, left: 0, right: 0, height: '30%', borderBottomLeftRadius: 22, borderBottomRightRadius: 22, zIndex: 1, pointerEvents: 'none' },
+  bookCardLeftEdge: { position: 'absolute', top: 0, left: 0, bottom: 0, width: 3, borderTopLeftRadius: 22, borderBottomLeftRadius: 22, zIndex: 1, pointerEvents: 'none' },
+  bookCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", zIndex: 2 },
+  bookIcon: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
+  bookBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 1 },
+  bookBadgeText: { fontSize: 11, fontWeight: '600' },
+  bookName: { fontSize: 18, fontWeight: '700', marginTop: 8, zIndex: 2 },
+  bookDesc: { fontSize: 13, lineHeight: 19, zIndex: 2 },
+  bookFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, zIndex: 2 },
+  bookFooterLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
+  bookFooterRight: { flexDirection: "row", alignItems: "center", gap: 6 },
+  bookRole: { fontSize: 12, textTransform: "capitalize" },
+  bookBalance: { fontSize: 14, fontWeight: '600' },
+  menuCard: { position: "absolute", minWidth: 200, borderRadius: 12, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8, overflow: "hidden" },
+  menuDivider: { height: StyleSheet.hairlineWidth },
+  menuItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 14 },
+  menuItemText: { fontSize: 15 },
+  bookDeleteBtn: { marginBottom: -40, marginLeft: 290 },
+  bookActionsRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  deleteButtonSmall: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FEE2E2', alignItems: "center", justifyContent: "center" },
+  profileDeleteBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, paddingVertical: 14, borderRadius: 12, borderWidth: 1 },
+  profileDeleteText: { fontSize: 16 },
+headerAvatar: {
+  width: 36,
+  height: 36,
+  borderRadius: 18,
+  resizeMode: "cover",
 },
 });

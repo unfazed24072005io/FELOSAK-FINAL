@@ -19,7 +19,7 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
-import { formatEGP } from "@/utils/format";
+import { formatAmount, getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
 
 interface InvoiceItem {
   id: string;
@@ -55,7 +55,18 @@ export default function CreateInvoiceScreen() {
   const [discount, setDiscount] = useState("0");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+const [refreshKey, setRefreshKey] = useState(0);
+const currencyCode = getCurrencyCode();
+const currencySymbol = getCurrencySymbol();
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing create-invoice screen");
+    setRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
+const formatAmount = (amount: number) => `${currencyCode} ${amount.toLocaleString('en-EG')}`;
   const topPad = Platform.OS === "web" ? 20 : 16;
 
   const subtotal = useMemo(
@@ -218,14 +229,14 @@ export default function CreateInvoiceScreen() {
 <table>
   <thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
   <tbody>
-    ${items.filter(i => i.name).map(i => `<tr><td>${esc(i.name)}</td><td>${i.quantity}</td><td>${formatEGP(i.unitPrice)}</td><td>${formatEGP(i.quantity * i.unitPrice)}</td></tr>`).join("")}
+    ${items.filter(i => i.name).map(i => `<tr><td>${esc(i.name)}</td><td>${i.quantity}</td><td>${formatAmount(i.unitPrice)}</td><td>${formatAmount(i.quantity * i.unitPrice)}</td></tr>`).join("")}
   </tbody>
 </table>
 <div class="totals">
-  <div class="row"><span>Subtotal</span><span>${formatEGP(subtotal)}</span></div>
-  ${parseFloat(taxRate || "0") > 0 ? `<div class="row"><span>Tax (${taxRate}%)</span><span>${formatEGP(taxAmount)}</span></div>` : ""}
-  ${discountAmount > 0 ? `<div class="row"><span>Discount</span><span>-${formatEGP(discountAmount)}</span></div>` : ""}
-  <div class="row grand"><span>Total</span><span>${formatEGP(grandTotal)}</span></div>
+  <div class="row"><span>Subtotal</span><span>${formatAmount(subtotal)}</span></div>
+  ${parseFloat(taxRate || "0") > 0 ? `<div class="row"><span>Tax (${taxRate}%)</span><span>${formatAmount(taxAmount)}</span></div>` : ""}
+  ${discountAmount > 0 ? `<div class="row"><span>Discount</span><span>-${formatAmount(discountAmount)}</span></div>` : ""}
+  <div class="row grand"><span>Total</span><span>${formatAmount(grandTotal)}</span></div>
 </div>
 ${notes ? `<div class="footer"><p><strong>Notes:</strong> ${esc(notes)}</p></div>` : ""}
 ${profileData?.bankName ? `<div class="footer"><p><strong>Bank:</strong> ${esc(profileData.bankName)} | Acc: ${esc(profileData.bankAccount || "N/A")} ${profileData.bankIban ? "| IBAN: " + esc(profileData.bankIban) : ""}</p></div>` : ""}
@@ -260,7 +271,8 @@ ${profileData?.footerNote ? `<div class="footer"><p>${esc(profileData.footerNote
 
   return (
     <ScrollView
-      style={[styles.container, { backgroundColor: theme.background }]}
+  key={refreshKey}
+  style={[styles.container, { backgroundColor: theme.background }]}
       contentContainerStyle={[styles.content, { paddingTop: topPad, paddingBottom: insets.bottom + 40 }]}
       keyboardShouldPersistTaps="handled"
     >
@@ -400,7 +412,7 @@ ${profileData?.footerNote ? `<div class="footer"><p>${esc(profileData.footerNote
               <View style={styles.itemNumField}>
                 <Text style={[styles.itemNumLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>{t("itemTotal")}</Text>
                 <Text style={[styles.itemTotal, { color: theme.tint, fontFamily: "Inter_700Bold" }]}>
-                  {formatEGP(item.quantity * item.unitPrice)}
+                  {formatAmount(item.quantity * item.unitPrice)}
                 </Text>
               </View>
             </View>
@@ -411,7 +423,7 @@ ${profileData?.footerNote ? `<div class="footer"><p>${esc(profileData.footerNote
       <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.calcRow}>
           <Text style={[styles.calcLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>{t("subtotal")}</Text>
-          <Text style={[styles.calcValue, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>{formatEGP(subtotal)}</Text>
+          <Text style={[styles.calcValue, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>{formatAmount(subtotal)}</Text>
         </View>
         <View style={styles.calcInputRow}>
           <Text style={[styles.calcLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>{t("taxRate")}</Text>
@@ -427,7 +439,7 @@ ${profileData?.footerNote ? `<div class="footer"><p>${esc(profileData.footerNote
         {parseFloat(taxRate || "0") > 0 ? (
           <View style={styles.calcRow}>
             <Text style={[styles.calcLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>{t("taxAmount")}</Text>
-            <Text style={[styles.calcValue, { color: theme.text, fontFamily: "Inter_500Medium" }]}>{formatEGP(taxAmount)}</Text>
+            <Text style={[styles.calcValue, { color: theme.text, fontFamily: "Inter_500Medium" }]}>{formatAmount(taxAmount)}</Text>
           </View>
         ) : null}
         <View style={styles.calcInputRow}>
@@ -443,7 +455,7 @@ ${profileData?.footerNote ? `<div class="footer"><p>${esc(profileData.footerNote
         </View>
         <View style={[styles.calcRow, styles.grandTotalRow, { borderTopColor: theme.border }]}>
           <Text style={[styles.grandTotalLabel, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{t("grandTotal")}</Text>
-          <Text style={[styles.grandTotalValue, { color: theme.tint, fontFamily: "Inter_700Bold" }]}>{formatEGP(grandTotal)}</Text>
+          <Text style={[styles.grandTotalValue, { color: theme.tint, fontFamily: "Inter_700Bold" }]}>{formatAmount(grandTotal)}</Text>
         </View>
       </View>
 

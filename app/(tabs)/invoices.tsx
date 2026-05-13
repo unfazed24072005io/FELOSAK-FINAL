@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo, useState } from "react";
+// app/(tabs)/invoices.tsx - COMPLETELY FIXED WITH PDF DOWNLOAD
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import {
   FlatList,
   Modal,
@@ -9,898 +10,945 @@ import {
   View,
   ScrollView,
   useColorScheme,
+  TextInput,
+  Alert,
+  Image,
+  RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
-import { useApp } from "@/context/AppContext";
+import { useApp, Document, DocumentType } from "@/context/AppContext";
 import { useLanguage } from "@/context/LanguageContext";
-import Colors from "@/constants/colors";
-import { formatEGP, formatDate } from "@/utils/format";
+import { formatEGP, formatDate, getCurrencySymbol, getCurrencyCode, subscribeToCurrencyChanges } from "@/utils/format";
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
-type InvoiceStatus = "all" | "unpaid" | "paid" | "overdue" | "draft";
-type Invoice = {
-  id: string;
-  number: string;
-  customer: string;
-  amount: number;
-  status: InvoiceStatus;
-  dueDate?: string;
-  createdAt: number;
+type FilterType = "All" | "Invoice" | "Quote" | "Credit Note" | "Purchase Order" | "Delivery Note";
+type StatusFilter = "all" | "paid" | "unpaid" | "overdue";
+const FILTERS: FilterType[] = ["All", "Invoice", "Quote", "Credit Note", "Purchase Order", "Delivery Note"];
+
+const DOCUMENT_CONFIG: Record<string, { icon: string; color: string }> = {
+  Invoice: { icon: "file-text", color: "#3B82F6" },
+  Quote: { icon: "file", color: "#10B981" },
+  "Credit Note": { icon: "credit-card", color: "#8B5CF6" },
+  "Purchase Order": { icon: "package", color: "#EC4899" },
+  "Delivery Note": { icon: "truck", color: "#14B8A6" },
 };
 
-export default function InvoicesScreen() {
-  const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme !== "light";
-  const theme = isDark ? Colors.dark : Colors.light;
-  const { activeBook, invoices: realInvoices, deleteInvoice } = useApp();  // ← CHANGE THIS LINE
-  const { t, isAr } = useLanguage();
-  const [activeFilter, setActiveFilter] = useState<InvoiceStatus>("all");
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+// Document Stat Card with colored icon
+function StatCard({ type, count, onPress }: { type: FilterType; count: number; onPress: () => void }) {
+  let config;
+  let iconName = "grid";
+  let iconColor = "#6B7280";
   
-  // Use realInvoices instead of converting from transactions
-  const invoices = realInvoices;  // ← ADD THIS LINE
-
-  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
-  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
-
-  // Filter invoices based on selected status
-  const filteredInvoices = useMemo(() => {
-    if (!invoices) return [];
-    if (activeFilter === "all") return invoices;
-    return invoices.filter(inv => inv.status === activeFilter);
-  }, [invoices, activeFilter]);
-
-  // Calculate stats
-  const stats = useMemo(() => {
-    if (!invoices || invoices.length === 0) {
-      return { total: 0, totalAmount: 0, unpaidAmount: 0, paidAmount: 0, overdueCount: 0 };
-    }
-    const total = invoices.length;
-    const totalAmount = invoices.reduce((sum, inv) => sum + (inv.amount || 0), 0);
-    const unpaidAmount = invoices
-      .filter(inv => inv.status === "unpaid" || inv.status === "overdue")
-      .reduce((sum, inv) => sum + (inv.amount || 0), 0);
-    const paidAmount = invoices
-      .filter(inv => inv.status === "paid")
-      .reduce((sum, inv) => sum + (inv.amount || 0), 0);
-    const overdueCount = invoices.filter(inv => inv.status === "overdue").length;
-    
-    return { total, totalAmount, unpaidAmount, paidAmount, overdueCount };
-  }, [invoices]);
-
-  const handleDelete = useCallback((invoice: Invoice) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setInvoiceToDelete(invoice);
-    setShowDeleteModal(true);
-  }, []);
-
-  const handleConfirmDelete = useCallback(() => {
-    if (invoiceToDelete) {
-      deleteInvoice(invoiceToDelete.id);  // ← USE deleteInvoice FROM CONTEXT
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    setShowDeleteModal(false);
-    setInvoiceToDelete(null);
-  }, [invoiceToDelete, deleteInvoice]);
-
-  const handleCancelDelete = useCallback(() => {
-    setShowDeleteModal(false);
-    setInvoiceToDelete(null);
-  }, []);
-
-  const handleAddInvoice = useCallback(() => {
-    router.push("/add-invoice");
-  }, []);
-
-  const renderItem = useCallback(({ item }: { item: Invoice }) => (
-    <InvoiceCard
-      invoice={item}
-      theme={theme}
-      onDelete={handleDelete}
-      onEdit={() => router.push({ pathname: "/add-invoice", params: { editId: item.id } })}
-      t={t}
-      isAr={isAr}
-    />
-  ), [theme, handleDelete, t, isAr]);
-
-  if (!activeBook) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>{isAr ? "الفواتير" : "Invoices"}</Text>
-        </View>
-        <View style={styles.emptyContent}>
-          <Feather name="file-text" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{isAr ? "اختر دفتراً لعرض الفواتير" : "Select a book to view invoices"}</Text>
-        </View>
-      </View>
-    );
+  if (type === "All") {
+    iconName = "grid";
+    iconColor = "#6B7280";
+  } else {
+    config = DOCUMENT_CONFIG[type];
+    iconName = config.icon;
+    iconColor = config.color;
   }
-
+  
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header with Add Button */}
-      <View
-        style={[
-          styles.headerWhite,
-          {
-            marginTop: insets.top + 40,
-          },
-        ]}
-      >
-        <Text
-          style={[
-            styles.titleBlack,
-            { fontFamily: "Inter_700Bold", color: "#000000" },
-          ]}
-        >
-          {isAr ? "الفواتير" : "Invoices"}
-        </Text>
-        <Pressable
-          onPress={handleAddInvoice}
-          style={({ pressed }) => [
-            styles.addBtnBlue,
-            { opacity: pressed ? 0.8 : 1 },
-          ]}
-        >
-          <Feather name="plus" size={20} color="#FFFFFF" />
-        </Pressable>
+    <Pressable onPress={onPress} style={styles.statCard}>
+      <View style={[styles.statIconCircle, { backgroundColor: iconColor + "15" }]}>
+        <Feather name={iconName as any} size={20} color={iconColor} />
       </View>
+      <Text style={styles.statType}>{type}</Text>
+      <Text style={[styles.statCount, { color: iconColor }]}>{count}</Text>
+    </Pressable>
+  );
+}
 
-      <FlatList
-        data={filteredInvoices}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={[
-          styles.list,
-          { paddingBottom: bottomPad + 100 },
-          (!filteredInvoices || filteredInvoices.length === 0) && styles.emptyContainer,
-        ]}
-        ListHeaderComponent={
-          <>
-            {/* Stats Cards */}
-            <View style={styles.summaryContainer}>
-              {/* Total Invoices Card */}
-              <View style={styles.summaryCardWrapper}>
-                <LinearGradient
-                  colors={["#EFF6FF", "#DBEAFE", "#BFDBFE"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.summaryCardGradient}
-                >
-                  <View style={styles.summaryCardRow}>
-                    <View style={styles.summaryLeft}>
-                      <Text style={[styles.summaryLabel, { color: "#1E40AF" }]}>{isAr ? "إجمالي الفواتير" : "Total Invoices"}</Text>
-                      <Text style={[styles.summaryAmount, { color: "#1E3A8A" }]}>
-                        {stats.total}
-                      </Text>
-                      <Text style={[styles.summarySub, { color: "#2563EB" }]}>
-                        {formatEGP(stats.totalAmount)}
-                      </Text>
-                    </View>
-                    <View style={styles.summaryRight}>
-                      <Svg width="60" height="60" viewBox="0 0 60 60">
-                        <Defs>
-                          <SvgLinearGradient id="blueGrad" x1="0%" y1="100%" x2="0%" y2="0%">
-                            <Stop offset="0%" stopColor="#2563EB" stopOpacity="0.4" />
-                            <Stop offset="100%" stopColor="#3B82F6" stopOpacity="0.8" />
-                          </SvgLinearGradient>
-                        </Defs>
-                        <Path
-                          d="M10,40 Q20,25 30,30 T50,20"
-                          stroke="#3B82F6"
-                          strokeWidth="2.5"
-                          fill="none"
-                          strokeLinecap="round"
-                        />
-                        <Path
-                          d="M48,17 L55,23 L51,20 L47,26"
-                          stroke="#3B82F6"
-                          strokeWidth="2"
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </Svg>
-                    </View>
-                  </View>
-                </LinearGradient>
-              </View>
-
-              {/* Unpaid Card */}
-              <Pressable
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setActiveFilter(activeFilter === "unpaid" ? "all" : "unpaid");
-                }}
-                style={[
-                  styles.summaryCardWrapper,
-                  activeFilter === "unpaid" && styles.activeCard
-                ]}
-              >
-                <LinearGradient
-                  colors={activeFilter === "unpaid" ? ["#FEF3C7", "#FDE68A", "#FCD34D"] : ["#FFFBEB", "#FEF3C7", "#FDE68A"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.summaryCardGradient}
-                >
-                  <View style={styles.summaryCardRow}>
-                    <View style={styles.summaryLeft}>
-                      <Text style={[styles.summaryLabel, { color: "#92400E" }]}>{isAr ? "غير مدفوعة" : "Unpaid"}</Text>
-                      <Text style={[styles.summaryAmount, { color: "#78350F" }]}>
-                        {formatEGP(stats.unpaidAmount)}
-                      </Text>
-                      <Text style={[styles.summarySub, { color: "#D97706" }]}>
-                        {invoices?.filter(i => i.status === "unpaid").length || 0} {isAr ? "فواتير" : "invoices"}
-                      </Text>
-                    </View>
-                    <View style={styles.summaryRight}>
-                      <Svg width="60" height="60" viewBox="0 0 60 60">
-                        <Defs>
-                          <SvgLinearGradient id="orangeGrad" x1="0%" y1="100%" x2="0%" y2="0%">
-                            <Stop offset="0%" stopColor="#D97706" stopOpacity="0.4" />
-                            <Stop offset="100%" stopColor="#F59E0B" stopOpacity="0.8" />
-                          </SvgLinearGradient>
-                        </Defs>
-                        <Path
-                          d="M5,45 Q15,35 20,40 T35,30 T45,20 T55,10"
-                          stroke="#F59E0B"
-                          strokeWidth="2.5"
-                          fill="none"
-                          strokeLinecap="round"
-                        />
-                      </Svg>
-                    </View>
-                  </View>
-                </LinearGradient>
-              </Pressable>
-
-              {/* Paid Card */}
-              <Pressable
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setActiveFilter(activeFilter === "paid" ? "all" : "paid");
-                }}
-                style={[
-                  styles.summaryCardWrapper,
-                  activeFilter === "paid" && styles.activeCard
-                ]}
-              >
-                <LinearGradient
-                  colors={activeFilter === "paid" ? ["#D1FAE5", "#A7F3D0", "#6EE7B7"] : ["#ECFDF5", "#D1FAE5", "#A7F3D0"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.summaryCardGradient}
-                >
-                  <View style={styles.summaryCardRow}>
-                    <View style={styles.summaryLeft}>
-                      <Text style={[styles.summaryLabel, { color: "#065F46" }]}>{isAr ? "مدفوعة" : "Paid"}</Text>
-                      <Text style={[styles.summaryAmount, { color: "#064E3B" }]}>
-                        {formatEGP(stats.paidAmount)}
-                      </Text>
-                      <Text style={[styles.summarySub, { color: "#059669" }]}>
-                        {invoices?.filter(i => i.status === "paid").length || 0} {isAr ? "فواتير" : "invoices"}
-                      </Text>
-                    </View>
-                    <View style={styles.summaryRight}>
-                      <Svg width="60" height="60" viewBox="0 0 60 60">
-                        <Defs>
-                          <SvgLinearGradient id="greenGrad2" x1="0%" y1="0%" x2="0%" y2="100%">
-                            <Stop offset="0%" stopColor="#10B981" stopOpacity="0.8" />
-                            <Stop offset="100%" stopColor="#059669" stopOpacity="0.4" />
-                          </SvgLinearGradient>
-                        </Defs>
-                        <Path
-                          d="M15,35 L25,45 L45,20"
-                          stroke="#10B981"
-                          strokeWidth="3"
-                          fill="none"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </Svg>
-                    </View>
-                  </View>
-                </LinearGradient>
-              </Pressable>
-
-              {/* Overdue Card */}
-              {stats.overdueCount > 0 && (
-                <Pressable
-                  onPress={() => {
-                    Haptics.selectionAsync();
-                    setActiveFilter(activeFilter === "overdue" ? "all" : "overdue");
-                  }}
-                  style={[
-                    styles.summaryCardWrapper,
-                    activeFilter === "overdue" && styles.activeCard
-                  ]}
-                >
-                  <LinearGradient
-                    colors={activeFilter === "overdue" ? ["#FEE2E2", "#FECACA", "#FCA5A5"] : ["#FEF2F2", "#FEE2E2", "#FECACA"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.summaryCardGradient}
-                  >
-                    <View style={styles.summaryCardRow}>
-                      <View style={styles.summaryLeft}>
-                        <Text style={[styles.summaryLabel, { color: "#991B1B" }]}>{isAr ? "متأخرة" : "Overdue"}</Text>
-                        <Text style={[styles.summaryAmount, { color: "#7F1D1D" }]}>
-                          {stats.overdueCount}
-                        </Text>
-                        <Text style={[styles.summarySub, { color: "#DC2626" }]}>
-                          {isAr ? "فواتير متأخرة" : "overdue invoices"}
-                        </Text>
-                      </View>
-                      <View style={styles.summaryRight}>
-                        <Svg width="60" height="60" viewBox="0 0 60 60">
-                          <Defs>
-                            <SvgLinearGradient id="redGrad2" x1="0%" y1="0%" x2="0%" y2="100%">
-                              <Stop offset="0%" stopColor="#EF4444" stopOpacity="0.8" />
-                              <Stop offset="100%" stopColor="#DC2626" stopOpacity="0.4" />
-                            </SvgLinearGradient>
-                          </Defs>
-                          <Path
-                            d="M30,15 L30,35 M30,45 L30,43"
-                            stroke="#EF4444"
-                            strokeWidth="3"
-                            fill="none"
-                            strokeLinecap="round"
-                          />
-                        </Svg>
-                      </View>
-                    </View>
-                  </LinearGradient>
-                </Pressable>
-              )}
-            </View>
-
-            {/* Filter Chips */}
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false} 
-              style={styles.filterBar} 
-              contentContainerStyle={styles.filterBarContent}
-            >
-              <Pressable
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setActiveFilter("all");
-                }}
-                style={[
-                  styles.filterChip,
-                  { 
-                    backgroundColor: activeFilter === "all" ? theme.tint + "22" : theme.card,
-                    borderColor: activeFilter === "all" ? theme.tint : theme.border 
-                  }
-                ]}
-              >
-                <Text style={[styles.filterChipText, { color: activeFilter === "all" ? theme.tint : theme.text }]}>
-                  {isAr ? "الكل" : "All"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setActiveFilter("unpaid");
-                }}
-                style={[
-                  styles.filterChip,
-                  { 
-                    backgroundColor: activeFilter === "unpaid" ? "#F59E0B" + "22" : theme.card,
-                    borderColor: activeFilter === "unpaid" ? "#F59E0B" : theme.border 
-                  }
-                ]}
-              >
-                <Text style={[styles.filterChipText, { color: activeFilter === "unpaid" ? "#F59E0B" : theme.text }]}>
-                  {isAr ? "غير مدفوعة" : "Unpaid"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setActiveFilter("paid");
-                }}
-                style={[
-                  styles.filterChip,
-                  { 
-                    backgroundColor: activeFilter === "paid" ? "#10B981" + "22" : theme.card,
-                    borderColor: activeFilter === "paid" ? "#10B981" : theme.border 
-                  }
-                ]}
-              >
-                <Text style={[styles.filterChipText, { color: activeFilter === "paid" ? "#10B981" : theme.text }]}>
-                  {isAr ? "مدفوعة" : "Paid"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setActiveFilter("overdue");
-                }}
-                style={[
-                  styles.filterChip,
-                  { 
-                    backgroundColor: activeFilter === "overdue" ? "#EF4444" + "22" : theme.card,
-                    borderColor: activeFilter === "overdue" ? "#EF4444" : theme.border 
-                  }
-                ]}
-              >
-                <Text style={[styles.filterChipText, { color: activeFilter === "overdue" ? "#EF4444" : theme.text }]}>
-                  {isAr ? "متأخرة" : "Overdue"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  Haptics.selectionAsync();
-                  setActiveFilter("draft");
-                }}
-                style={[
-                  styles.filterChip,
-                  { 
-                    backgroundColor: activeFilter === "draft" ? "#6B7280" + "22" : theme.card,
-                    borderColor: activeFilter === "draft" ? "#6B7280" : theme.border 
-                  }
-                ]}
-              >
-                <Text style={[styles.filterChipText, { color: activeFilter === "draft" ? "#6B7280" : theme.text }]}>
-                  {isAr ? "مسودة" : "Draft"}
-                </Text>
-              </Pressable>
-            </ScrollView>
-
-            {filteredInvoices && filteredInvoices.length > 0 && (
-              <Text
-                style={[
-                  styles.subheading,
-                  { color: theme.textSecondary, fontFamily: "Inter_500Medium" },
-                ]}
-              >
-                {isAr ? "قائمة الفواتير" : "Invoice List"} ({filteredInvoices.length})
-              </Text>
-            )}
-          </>
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContent}>
-            <Feather name="file-text" size={44} color={theme.textSecondary} />
-            <Text
-              style={[
-                styles.emptyText,
-                { color: theme.textSecondary, fontFamily: "Inter_400Regular" },
-              ]}
-            >
-              {isAr ? "لا توجد فواتير" : "No invoices found"}
-            </Text>
-          </View>
-        }
-        ItemSeparatorComponent={() => (
-          <View style={[styles.separator, { backgroundColor: theme.border }]} />
-        )}
-      />
-
-      {/* Delete Modal */}
-      <Modal
-        visible={showDeleteModal}
-        transparent
-        animationType="fade"
-        onRequestClose={handleCancelDelete}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-              {isAr ? "حذف الفاتورة" : "Delete Invoice"}
-            </Text>
-            <Text style={[styles.modalMessage, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              {invoiceToDelete 
-                ? (isAr 
-                    ? `هل أنت متأكد من حذف فاتورة ${invoiceToDelete.number}؟`
-                    : `Are you sure you want to delete invoice ${invoiceToDelete.number}?`)
-                : ""}
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                onPress={handleCancelDelete}
-                style={({ pressed }) => [
-                  styles.modalBtn,
-                  { backgroundColor: theme.surface, opacity: pressed ? 0.8 : 1 },
-                ]}
-              >
-                <Text style={[styles.modalBtnText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                  {isAr ? "إلغاء" : "Cancel"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={handleConfirmDelete}
-                style={({ pressed }) => [
-                  styles.modalBtn,
-                  { backgroundColor: theme.expense, opacity: pressed ? 0.8 : 1 },
-                ]}
-              >
-                <Text style={[styles.modalBtnText, { color: "#FFF", fontFamily: "Inter_600SemiBold" }]}>
-                  {isAr ? "حذف" : "Delete"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+// Document Icon with consistent colors - SAME as StatCard
+function DocumentIcon({ type, size = 40 }: { type: string; size?: number }) {
+  const config = DOCUMENT_CONFIG[type];
+  const defaultConfig = DOCUMENT_CONFIG.Invoice;
+  const usedConfig = config || defaultConfig;
+  
+  return (
+    <View style={[styles.docIconCircle, { backgroundColor: usedConfig.color + "15", width: size, height: size, borderRadius: size / 2 }]}>
+      <Feather name={usedConfig.icon as any} size={size * 0.5} color={usedConfig.color} />
     </View>
   );
 }
 
-// Invoice Card Component (same as before)
-// Invoice Card Component (with Edit and Delete buttons)
-function InvoiceCard({
-  invoice,
-  theme,
-  onDelete,
-  onEdit,
-  t,
-  isAr,
-}: {
-  invoice: Invoice;
-  theme: typeof Colors.dark;
-  onDelete: (inv: Invoice) => void;
-  onEdit: () => void;
-  t: (key: any, params?: Record<string, string | number>) => string;
-  isAr: boolean;
+// Document Type Badge with consistent colors
+function DocumentTypeBadge({ type }: { type: string }) {
+  const config = DOCUMENT_CONFIG[type] || DOCUMENT_CONFIG.Invoice;
+  return (
+    <View style={[styles.typeBadge, { backgroundColor: config.color + "15" }]}>
+      <Text style={[styles.typeBadgeText, { color: config.color }]}>{type}</Text>
+    </View>
+  );
+}
+
+// Status Badge for payment status - ONLY for Invoices
+function StatusBadge({ status, documentType }: { status: "paid" | "unpaid" | "overdue"; documentType: string }) {
+  if (documentType !== "Invoice") return null;
+  
+  const config = {
+    paid: { color: "#10B981", text: "Paid", icon: "check-circle" },
+    unpaid: { color: "#F59E0B", text: "Unpaid", icon: "clock" },
+    overdue: { color: "#EF4444", text: "Overdue", icon: "alert-triangle" },
+  };
+  const current = config[status];
+  return (
+    <View style={[styles.statusBadge, { backgroundColor: current.color + "15" }]}>
+      <Feather name={current.icon as any} size={12} color={current.color} />
+      <Text style={[styles.statusBadgeText, { color: current.color }]}>{current.text}</Text>
+    </View>
+  );
+}
+
+// Recent Document Card with download button
+function RecentDocumentCard({ document, onPress, onDownload }: { 
+  document: Document; 
+  onPress: () => void; 
+  onDownload: () => void;
 }) {
-  const statusColor = (() => {
-    switch (invoice.status) {
-      case "paid": return theme.income;
-      case "unpaid": return "#F59E0B";
-      case "overdue": return theme.expense;
-      case "draft": return theme.textSecondary;
-      default: return theme.textSecondary;
-    }
-  })();
+  const getDocumentStatus = (doc: Document): "paid" | "unpaid" | "overdue" => {
+    if (doc.status === "paid") return "paid";
+    const today = new Date();
+    const dueDate = new Date(doc.dueDate || doc.date);
+    if (dueDate < today) return "overdue";
+    return "unpaid";
+  };
 
-  const statusLabel = (() => {
-    if (isAr) {
-      switch (invoice.status) {
-        case "paid": return "مدفوعة";
-        case "unpaid": return "غير مدفوعة";
-        case "overdue": return "متأخرة";
-        case "draft": return "مسودة";
-        default: return invoice.status;
-      }
-    }
-    return invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1);
-  })();
-
-  const statusBg = (() => {
-    switch (invoice.status) {
-      case "paid": return theme.income + "15";
-      case "unpaid": return "#F59E0B" + "15";
-      case "overdue": return theme.expense + "15";
-      case "draft": return theme.textSecondary + "15";
-      default: return theme.card;
-    }
-  })();
-
-  const isOverdue = invoice.status === "overdue";
+  const status = getDocumentStatus(document);
 
   return (
-    <Pressable
-      onPress={onEdit}
-      style={({ pressed }) => [
-        styles.invoiceCard,
-        { opacity: pressed ? 0.8 : 1 },
-      ]}
-    >
-      <View style={[styles.invoiceAvatar, { backgroundColor: statusColor + "22" }]}>
-        <Feather name="file-text" size={22} color={statusColor} />
+    <Pressable onPress={onPress} style={styles.recentCard}>
+      <DocumentIcon type={document.type} size={44} />
+      <View style={styles.recentContent}>
+        <Text style={styles.recentNumber} numberOfLines={1}>{document.number}</Text>
+        <Text style={styles.recentParty} numberOfLines={1}>{document.partyName}</Text>
       </View>
-      <View style={styles.invoiceContent}>
-        <View style={styles.invoiceTopRow}>
-          <Text
-            style={[
-              styles.invoiceNumber,
-              {
-                color: theme.text,
-                fontFamily: "Inter_600SemiBold",
-              },
-            ]}
-          >
-            {invoice.number}
-          </Text>
-          <Text
-            style={[
-              styles.invoiceAmount,
-              { color: statusColor, fontFamily: "Inter_700Bold" },
-            ]}
-          >
-            {formatEGP(invoice.amount)}
-          </Text>
-        </View>
-        <Text
-          style={[
-            styles.invoiceCustomer,
-            { color: theme.textSecondary, fontFamily: "Inter_400Regular" },
-          ]}
-        >
-          {invoice.customer}
-        </Text>
-        
-        {/* Action Buttons - Edit (Grey) & Delete (Red) */}
-        <View style={styles.actionButtons}>
-          <Pressable
-            onPress={onEdit}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              styles.editBtn,
-              { opacity: pressed ? 0.7 : 1 }
-            ]}
-          >
-            <Feather name="edit-2" size={14} color="#6B7280" />
-            <Text style={[styles.actionBtnText, { color: "#6B7280" }]}>
-              {isAr ? "تعديل" : "Edit"}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => onDelete(invoice)}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              styles.deleteBtn,
-              { opacity: pressed ? 0.7 : 1 }
-            ]}
-          >
-            <Feather name="trash-2" size={14} color="#EF4444" />
-            <Text style={[styles.actionBtnText, { color: "#EF4444" }]}>
-              {isAr ? "حذف" : "Delete"}
-            </Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.invoiceBottomRow}>
-          {invoice.dueDate ? (
-            <View style={styles.dueDateRow}>
-              <Feather
-                name="calendar"
-                size={11}
-                color={isOverdue ? theme.expense : theme.textSecondary}
-              />
-              <Text
-                style={[
-                  styles.dueDate,
-                  {
-                    color: isOverdue ? theme.expense : theme.textSecondary,
-                    fontFamily: "Inter_400Regular",
-                  },
-                ]}
-              >
-                {isOverdue ? "Overdue · " : "Due "}
-                {formatDate(invoice.dueDate)}
-              </Text>
-            </View>
-          ) : null}
-          <View style={[styles.statusBadge, { backgroundColor: statusBg }]}>
-            <Text style={[styles.statusText, { color: statusColor, fontFamily: "Inter_500Medium" }]}>
-              {statusLabel}
-            </Text>
-          </View>
-        </View>
+      <View style={styles.badgeContainer}>
+        <DocumentTypeBadge type={document.type} />
+        <StatusBadge status={status} documentType={document.type} />
+        <Pressable onPress={onDownload} style={styles.downloadBtn}>
+          <Feather name="download" size={16} color="#3B82F6" />
+        </Pressable>
       </View>
     </Pressable>
   );
 }
+
+// Document Detail Modal with PDF download
+function DocumentDetailModal({ visible, onClose, document, onUpdateDocument, onDownloadPDF }: { 
+  visible: boolean; 
+  onClose: () => void; 
+  document: Document | null;
+  onUpdateDocument: (id: string, data: Partial<Document>) => Promise<void>;
+  onDownloadPDF: (doc: Document) => void;
+}) {
+  if (!document) return null;
+  const config = DOCUMENT_CONFIG[document.type] || DOCUMENT_CONFIG.Invoice;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalContainer}>
+        <View style={[styles.modalContentFull, { backgroundColor: "#FFFFFF" }]}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Feather name="arrow-left" size={24} color="#000" />
+            </Pressable>
+            <Text style={styles.modalTitle}>Document Details</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={[styles.detailStatusBadge, { backgroundColor: config.color + "15" }]}>
+              <View style={[styles.detailStatusDot, { backgroundColor: config.color }]} />
+              <Text style={[styles.detailStatusText, { color: config.color }]}>{document.type}</Text>
+            </View>
+
+            <Text style={styles.detailNumber}>{document.number}</Text>
+
+            <View style={styles.detailRow}>
+              <Feather name="user" size={18} color="#6B7280" />
+              <Text style={styles.detailLabel}>Party Name</Text>
+              <Text style={styles.detailValue}>{document.partyName}</Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Feather name="dollar-sign" size={18} color="#6B7280" />
+              <Text style={styles.detailLabel}>Amount</Text>
+              <Text style={[styles.detailAmount, { color: config.color }]}>{getCurrencyCode()} {document.amount.toLocaleString('en-EG')}</Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Feather name="calendar" size={18} color="#6B7280" />
+              <Text style={styles.detailLabel}>Date</Text>
+              <Text style={styles.detailValue}>{formatDate(document.date)}</Text>
+            </View>
+
+            {document.dueDate && (
+              <View style={styles.detailRow}>
+                <Feather name="alert-circle" size={18} color="#6B7280" />
+                <Text style={styles.detailLabel}>Due Date</Text>
+                <Text style={styles.detailValue}>{formatDate(document.dueDate)}</Text>
+              </View>
+            )}
+
+            {document.notes && (
+              <View style={styles.detailRow}>
+                <Feather name="file-text" size={18} color="#6B7280" />
+                <Text style={styles.detailLabel}>Notes</Text>
+                <Text style={styles.detailValue}>{document.notes}</Text>
+              </View>
+            )}
+
+            {document.items && document.items.length > 0 && (
+              <View style={styles.itemsSection}>
+                <Text style={styles.itemsTitle}>Items</Text>
+                {document.items.map((item, idx) => (
+                  <View key={idx} style={styles.itemRow}>
+                    <Text style={styles.itemName}>{item.name}</Text>
+                    <Text style={styles.itemQty}>x{item.quantity}</Text><Text style={styles.itemPrice}>{getCurrencyCode()} {item.price.toLocaleString('en-EG')}</Text>
+<Text style={styles.itemTotal}>{getCurrencyCode()} {item.total.toLocaleString('en-EG')}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Download PDF Button */}
+            <Pressable
+              onPress={() => onDownloadPDF(document)}
+              style={styles.downloadPdfBtn}
+            >
+              <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.downloadPdfGradient}>
+                <Feather name="download" size={20} color="#FFF" />
+                <Text style={styles.downloadPdfText}>Download PDF</Text>
+              </LinearGradient>
+            </Pressable>
+
+            {(document.type === "Invoice" && document.status !== "paid") && (
+              <Pressable
+                onPress={async () => {
+                  try {
+                    await onUpdateDocument(document.id, { status: "paid" });
+                    Alert.alert("Success", "Invoice marked as paid");
+                    onClose();
+                  } catch (error) {
+                    Alert.alert("Error", "Failed to mark as paid");
+                  }
+                }}
+                style={styles.markPaidBtn}
+              >
+                <LinearGradient colors={['#10B981', '#059669']} style={styles.markPaidGradient}>
+                  <Feather name="check-circle" size={20} color="#FFF" />
+                  <Text style={styles.markPaidText}>Mark as Paid</Text>
+                </LinearGradient>
+              </Pressable>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// Create Document Modal (Type Selector)
+function CreateDocumentModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const handleSelectType = (type: string) => {
+    onClose();
+    router.push({ pathname: "/create-document", params: { type: type.toLowerCase().replace(/\s/g, "-") } });
+  };
+
+  const handleAIGenerate = () => {
+    onClose();
+    router.push("/ai-document-chat");
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalContainer}>
+        <View style={[styles.modalContentFull, { backgroundColor: "#FFFFFF" }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Create Document</Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Feather name="x" size={24} color="#000" />
+            </Pressable>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Pressable onPress={handleAIGenerate} style={styles.aiGenerateOption}>
+              <View style={styles.aiContent}>
+                <View>
+                  <Text style={styles.aiTitle}>Generate with AI</Text>
+                  <Text style={styles.aiSubtitle}>Create any document using text or voice</Text>
+                </View>
+                <View style={styles.aiRobotIcon}>
+                  <Image 
+                    source={{ uri: "https://i.ibb.co/N6YschDX/Gemini-Generated-Image-aua6dsaua6dsaua6.png" }}
+                    style={styles.aiRobotImage}
+                    resizeMode="contain"
+                  />
+                </View>
+              </View>
+            </Pressable>
+
+            <View style={styles.divider}>
+              <View style={[styles.dividerLine, { backgroundColor: "#E5E7EB" }]} />
+              <Text style={[styles.dividerText, { color: "#9CA3AF" }]}>OR CHOOSE DOCUMENT TYPE</Text>
+              <View style={[styles.dividerLine, { backgroundColor: "#E5E7EB" }]} />
+            </View>
+
+            {Object.keys(DOCUMENT_CONFIG).map((type) => (
+              <Pressable key={type} onPress={() => handleSelectType(type)} style={styles.typeOptionRow}>
+                <View style={[styles.typeOptionIconRow, { backgroundColor: DOCUMENT_CONFIG[type].color + "15" }]}>
+                  <Feather name={DOCUMENT_CONFIG[type].icon as any} size={24} color={DOCUMENT_CONFIG[type].color} />
+                </View>
+                <Text style={styles.typeOptionTextRow}>{type}</Text>
+                <Feather name="chevron-right" size={20} color="#9CA3AF" />
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// Main Component
+export default function DocumentsHub() {
+  const insets = useSafeAreaInsets();
+  const { documents, fetchDocuments, activeBook, updateDocument } = useApp();
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [activeFilter, setActiveFilter] = useState<FilterType>("All");
+  const [showSearchBar, setShowSearchBar] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+  const [showDocumentDetail, setShowDocumentDetail] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
+  const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  // Load documents when component mounts or book changes
+  const loadDocuments = async () => {
+    if (activeBook) {
+      console.log("Loading documents for book:", activeBook.id);
+      await fetchDocuments(activeBook.id);
+    }
+  };
+
+  useEffect(() => {
+    loadDocuments();
+  }, [activeBook]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDocuments();
+      return () => {};
+    }, [activeBook])
+  );
+const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing documents hub");
+    setCurrencyRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadDocuments();
+    setRefreshing(false);
+  };
+
+  // Generate PDF for a single document
+  // Generate PDF for a single document
+const generateDocumentPDF = async (document: Document) => {
+  if (!document) return;
+  
+  try {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    
+    const config = DOCUMENT_CONFIG[document.type] || DOCUMENT_CONFIG.Invoice;
+    const currencyCode = getCurrencyCode();
+    const currencySymbol = getCurrencySymbol();
+    
+    // Helper to format amount with dynamic currency
+    const formatAmount = (amount: number) => `${currencyCode} ${amount.toLocaleString('en-EG')}`;
+    
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>${document.number}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; margin: 0; color: #333; }
+          .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid ${config.color}; padding-bottom: 20px; }
+          .header h1 { color: ${config.color}; margin: 0; font-size: 24px; }
+          .header p { color: #666; margin: 5px 0 0; font-size: 12px; }
+          .doc-info { background: #F9FAFB; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+          .doc-number { font-size: 16px; font-weight: bold; color: ${config.color}; margin-bottom: 10px; }
+          .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+          .label { font-weight: bold; color: #666; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th { background: ${config.color}; color: white; padding: 10px; text-align: left; font-size: 12px; }
+          td { padding: 8px 10px; border-bottom: 1px solid #E5E7EB; font-size: 11px; }
+          .total-row { margin-top: 20px; text-align: right; font-size: 16px; font-weight: bold; }
+          .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #999; border-top: 1px solid #E5E7EB; padding-top: 15px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>${document.type}</h1>
+          <p>Generated: ${new Date().toLocaleString()}</p>
+        </div>
+        <div class="doc-info">
+          <div class="doc-number">${document.number}</div>
+          <div class="row"><span class="label">Party Name:</span><span>${document.partyName}</span></div>
+          <div class="row"><span class="label">Date:</span><span>${formatDate(document.date)}</span></div>
+          ${document.dueDate ? `<div class="row"><span class="label">Due Date:</span><span>${formatDate(document.dueDate)}</span></div>` : ''}
+          <div class="row"><span class="label">Amount:</span><span style="color: ${config.color}; font-weight: bold;">${formatAmount(document.amount)}</span></div>
+        </div>
+        ${document.items && document.items.length > 0 ? `
+        <table>
+          <thead><tr><th>Item</th><th>Quantity</th><th>Price</th><th>Total</th></tr></thead>
+          <tbody>
+            ${document.items.map(item => `
+              <tr>
+                <td>${item.name}</td>
+                <td>${item.quantity}</td>
+                <td>${formatAmount(item.price)}</td>
+                <td>${formatAmount(item.total)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        ` : ''}
+        ${document.notes ? `<div class="row" style="margin-top: 20px;"><span class="label">Notes:</span><span>${document.notes}</span></div>` : ''}
+        <div class="footer">
+          <p>Generated from Felosak App</p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    if (Platform.OS === 'web') {
+      const win = window.open();
+      win?.document.write(htmlContent);
+      win?.document.close();
+      win?.print();
+      Alert.alert("Success", "Print dialog opened. You can save as PDF.");
+    } else {
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+      await Sharing.shareAsync(uri);
+      Alert.alert("Success", "PDF generated and shared!");
+    }
+  } catch (error) {
+    console.error("PDF Error:", error);
+    Alert.alert("Error", "Failed to generate PDF");
+  }
+};
+
+  // Calculate stats with real document counts
+  const getCountForType = (type: string) => {
+    if (type === "All") return documents.length;
+    return documents.filter(doc => doc.type === type).length;
+  };
+  
+  const getDocumentStatus = (doc: Document): "paid" | "unpaid" | "overdue" => {
+    if (doc.status === "paid") return "paid";
+    const today = new Date();
+    const dueDate = new Date(doc.dueDate || doc.date);
+    if (dueDate < today) return "overdue";
+    return "unpaid";
+  };
+  
+  const filteredDocuments = useMemo(() => {
+    let filtered = documents;
+    if (activeFilter !== "All") {
+      filtered = filtered.filter(doc => doc.type === activeFilter);
+    }
+    if (statusFilter !== "all") {
+      filtered = filtered.filter(doc => getDocumentStatus(doc) === statusFilter);
+    }
+    if (searchQuery) {
+      filtered = filtered.filter(doc =>
+        doc.partyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        doc.number.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    return filtered;
+  }, [documents, activeFilter, searchQuery, statusFilter]);
+  
+  const counts = useMemo(() => {
+    const counts = { all: documents.length, paid: 0, unpaid: 0, overdue: 0 };
+    documents.forEach(doc => {
+      const status = getDocumentStatus(doc);
+      counts[status]++;
+    });
+    return counts;
+  }, [documents]);
+  
+  const invoiceCounts = useMemo(() => {
+    const invoices = documents.filter(doc => doc.type === "Invoice");
+    const counts = { all: invoices.length, paid: 0, unpaid: 0, overdue: 0 };
+    invoices.forEach(doc => {
+      const status = getDocumentStatus(doc);
+      counts[status]++;
+    });
+    return counts;
+  }, [documents]);
+  
+  const handleStatPress = (type: FilterType) => {
+    setActiveFilter(type);
+    setStatusFilter("all");
+  };
+
+  const handleDocumentPress = (document: Document) => {
+    setSelectedDocument(document);
+    setShowDocumentDetail(true);
+  };
+
+  const renderRecentDocument = ({ item }: { item: Document }) => (
+    <RecentDocumentCard 
+      document={item} 
+      onPress={() => handleDocumentPress(item)} 
+      onDownload={() => generateDocumentPDF(item)}
+    />
+  );
+
+  const isInvoiceFilterActive = activeFilter === "Invoice";
+
+  return (
+    <View style={[styles.container, { backgroundColor: "#F9FAFB" }]}>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: topPad + 8 }]}>
+        <Text style={styles.headerTitle}>Documents Hub</Text>
+        <View style={styles.headerRight}>
+          <Pressable onPress={() => setShowSearchBar(!showSearchBar)} style={styles.iconBtn}>
+            <Feather name="search" size={22} color={showSearchBar ? "#3B82F6" : "#6B7280"} />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Search Bar */}
+      {showSearchBar && (
+        <View style={styles.searchContainer}>
+          <Feather name="search" size={20} color="#9CA3AF" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search documents..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus
+          />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => setSearchQuery("")}>
+              <Feather name="x" size={20} color="#9CA3AF" />
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {/* Filter Chips */}
+      <View style={styles.filterWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollContent}>
+          {FILTERS.map((filter) => (
+            <Pressable
+              key={filter}
+              onPress={() => handleStatPress(filter)}
+              style={[styles.filterChip, activeFilter === filter && styles.activeFilterChip]}
+            >
+              <Text style={[styles.filterChipText, activeFilter === filter && styles.activeFilterChipText]}>
+                {filter}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+      
+      {/* Status Filter Row */}
+      {isInvoiceFilterActive && (
+        <View style={styles.statusFilterRow}>
+          {(["all", "unpaid", "paid", "overdue"] as StatusFilter[]).map((filter) => (
+            <Pressable
+              key={filter}
+              onPress={() => setStatusFilter(filter)}
+              style={[styles.statusFilterTab, statusFilter === filter && styles.activeStatusFilterTab]}
+            >
+              <Text style={[styles.statusFilterText, statusFilter === filter && styles.activeStatusFilterText]}>
+                {filter === "all" ? `All (${invoiceCounts.all})` : 
+                 filter === "paid" ? `Paid (${invoiceCounts.paid})` :
+                 filter === "unpaid" ? `Unpaid (${invoiceCounts.unpaid})` :
+                 `Overdue (${invoiceCounts.overdue})`}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* AI Generate Banner */}
+      <Pressable onPress={() => setShowCreateModal(true)} style={styles.aiBanner}>
+        <View style={styles.aiBannerContent}>
+          <View style={styles.aiBannerLeft}>
+            <Text style={styles.aiBannerTitle}>Generate with AI</Text>
+            <Text style={styles.aiBannerSubtitle}>Create any document in seconds using text or voice</Text>
+          </View>
+          <View style={styles.aiRobotIcon}>
+            <Image 
+              source={{ uri: "https://i.ibb.co/N6YschDX/Gemini-Generated-Image-aua6dsaua6dsaua6.png" }}
+              style={styles.aiRobotImage}
+              resizeMode="contain"
+            />
+          </View>
+        </View>
+      </Pressable>
+
+      {/* Document Stats Cards */}
+      <View style={styles.statsWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsScrollContent}>
+          <StatCard type="All" count={getCountForType("All")} onPress={() => handleStatPress("All")} />
+          {Object.keys(DOCUMENT_CONFIG).map((type) => (
+            <StatCard 
+              key={type} 
+              type={type as FilterType} 
+              count={getCountForType(type)} 
+              onPress={() => handleStatPress(type as FilterType)} 
+            />
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* Recent Documents Header */}
+      <View style={styles.recentHeader}>
+        <Text style={styles.recentTitle}>Recent Documents</Text>
+        <Pressable onPress={() => handleStatPress("All")}>
+          <Text style={styles.viewAllText}>View All</Text>
+        </Pressable>
+      </View>
+
+      {/* Recent Documents List */}
+      <FlatList
+  data={filteredDocuments}
+  keyExtractor={(item) => `${item.id}-${currencyRefreshKey}`}
+  renderItem={renderRecentDocument}
+        contentContainerStyle={[styles.recentList, { paddingBottom: bottomPad + 80 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3B82F6"]} />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContent}>
+            <Feather name="file-text" size={44} color="#D1D5DB" />
+            <Text style={styles.emptyText}>No documents found</Text>
+            <Pressable onPress={() => setShowCreateModal(true)} style={styles.emptyBtn}>
+              <Text style={styles.emptyBtnTxt}>Create Document</Text>
+            </Pressable>
+          </View>
+        }
+        ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: "#F0F0F0" }]} />}
+      />
+      
+      {/* Create Document FAB */}
+      <Pressable onPress={() => setShowCreateModal(true)} style={[styles.fab, { bottom: bottomPad + 80 }]}>
+        <LinearGradient colors={['#3B82F6', '#2563EB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabGradient}>
+          <Feather name="plus" size={28} color="#FFFFFF" />
+        </LinearGradient>
+      </Pressable>
+
+      {/* Modals */}
+      <CreateDocumentModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} />
+      <DocumentDetailModal 
+        visible={showDocumentDetail} 
+        onClose={() => setShowDocumentDetail(false)} 
+        document={selectedDocument}
+        onUpdateDocument={updateDocument}
+        onDownloadPDF={generateDocumentPDF}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  actionButtons: {
-  flexDirection: "row",
-  justifyContent: "flex-end",
-  gap: 12,
-  marginBottom: 8,
-},
-actionBtn: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 4,
-  paddingHorizontal: 10,
-  paddingVertical: 5,
-  borderRadius: 6,
-},
-editBtn: {
-  backgroundColor: "#F3F4F6",
-},
-deleteBtn: {
-  backgroundColor: "#FEE2E2",
-},
-actionBtnText: {
-  fontSize: 11,
-  fontFamily: "Inter_500Medium",
-},
   container: { flex: 1 },
-  headerWhite: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  titleBlack: {
-    fontSize: 28,
-    color: "#000000",
-  },
-  addBtnBlue: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#3B82F6",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#3B82F6",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  summaryContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 12,
-  },
-  summaryCardWrapper: {
-    borderRadius: 20,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  activeCard: {
-    transform: [{ scale: 1.02 }],
-  },
-  summaryCardGradient: {
-    borderRadius: 20,
-    padding: 18,
-  },
-  summaryCardRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  summaryLeft: {
-    flex: 1,
-  },
-  summaryRight: {
-    width: 60,
-    alignItems: "flex-end",
-  },
-  summaryLabel: {
-    fontSize: 13,
-    fontWeight: "500",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  summaryAmount: {
-    fontSize: 28,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  summarySub: {
-    fontSize: 12,
-  },
-  filterBar: {
-    paddingVertical: 8,
-  },
-  filterBarContent: {
-    paddingHorizontal: 20,
-    gap: 8,
-    flexDirection: "row",
-  },
-  filterChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  filterChipText: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-  },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end",
+    alignItems: "center",
     paddingHorizontal: 20,
-    paddingBottom: 16,
-    marginBottom: -8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 16,
+    backgroundColor: "#FFFFFF",
   },
-  title: { fontSize: 28 },
-  addBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+  headerTitle: { fontSize: 28, fontFamily: "Inter_700Bold", color: "#000" },
+  headerRight: { flexDirection: "row", gap: 16, alignItems: "center" },
+  iconBtn: { padding: 4, position: "relative" },
+  notificationBadge: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#EF4444",
+  },
+  searchContainer: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-  },
-  list: { paddingHorizontal: 20, paddingTop: 4, flexGrow: 1 },
-  emptyContainer: { flex: 1 },
-  emptyContent: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    paddingTop: 60,
-  },
-  emptyText: { fontSize: 15 },
-  emptyBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 12,
-    marginBottom: 200,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 8,
   },
-  emptyBtnTxt: { color: "#FFF", fontSize: 15 },
-  subheading: { fontSize: 13, marginBottom: 10, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.5 },
-  separator: { height: StyleSheet.hairlineWidth },
-  invoiceCard: {
+  searchInput: { flex: 1, fontSize: 16, fontFamily: "Inter_400Regular" },
+  filterWrapper: { marginBottom: 16 },
+  filterScrollContent: { paddingHorizontal: 20, gap: 8 },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  activeFilterChip: { backgroundColor: "#3B82F6", borderColor: "#3B82F6" },
+  filterChipText: { fontSize: 14, color: "#000", fontFamily: "Inter_500Medium" },
+  activeFilterChipText: { color: "#FFFFFF" },
+  aiBanner: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 16,
+    backgroundColor: "#F3E8FF",
+    borderWidth: 1,
+    borderColor: "#E9D5FF",
+    overflow: "hidden",
+  },
+  aiBannerContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+  },
+  aiBannerLeft: { flex: 1 },
+  aiBannerTitle: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#8B5CF6" },
+  aiBannerSubtitle: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#6B7280", marginTop: 4 },
+  aiRobotIcon: { width: 60, height: 60, alignItems: "center", justifyContent: "center" },
+  statsWrapper: { marginBottom: 20 },
+  statsScrollContent: { paddingHorizontal: 20, gap: 12 },
+  statCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 14,
+    alignItems: "center",
+    width: 90,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#F0F0F0",
+  },
+  statIconCircle: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 22, 
+    alignItems: "center", 
+    justifyContent: "center", 
+    marginBottom: 8 
+  },
+  statType: { fontSize: 12, color: "#6B7280", fontFamily: "Inter_500Medium", marginBottom: 4, textAlign: "center" },
+  statCount: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  recentHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  recentTitle: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#000" },
+  viewAllText: { fontSize: 14, color: "#3B82F6", fontFamily: "Inter_600SemiBold" },
+  recentList: { paddingHorizontal: 20 },
+  recentCard: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 14,
     gap: 12,
+    flexWrap: "nowrap",
   },
-  invoiceAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  recentContent: { 
+    flex: 1, 
+    flexShrink: 1,
+    minWidth: 0,
+  },
+  recentNumber: { 
+    fontSize: 14, 
+    fontFamily: "Inter_600SemiBold", 
+    color: "#000",
+    flexShrink: 1,
+  },
+  recentParty: { 
+    fontSize: 12, 
+    color: "#6B7280", 
+    fontFamily: "Inter_400Regular", 
+    marginTop: 2,
+    flexShrink: 1,
+  },
+  badgeContainer: {
+    flexDirection: "row",
+    gap: 6,
     alignItems: "center",
-    justifyContent: "center",
+    flexShrink: 0,
   },
-  invoiceContent: { flex: 1 },
-  invoiceTopRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 4 },
-  invoiceNumber: { fontSize: 15, flex: 1, marginRight: 8 },
-  invoiceAmount: { fontSize: 15 },
-  invoiceCustomer: { fontSize: 13, marginBottom: 6 },
-  invoiceBottomRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  dueDateRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  dueDate: { fontSize: 11 },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  statusText: { fontSize: 10, fontWeight: "600" },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
+  typeBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  typeBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold" },
+  docIconCircle: { alignItems: "center", justifyContent: "center" },
+  separator: { height: 1 },
+  emptyContent: { alignItems: "center", justifyContent: "center", gap: 12, paddingTop: 60 },
+  emptyText: { fontSize: 15, color: "#6B7280", fontFamily: "Inter_400Regular" },
+  emptyBtn: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: "#3B82F6" },
+  emptyBtnTxt: { color: "#FFF", fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  fab: { 
+    position: "absolute", 
+    right: 20, 
+    width: 56, 
+    height: 56, 
+    borderRadius: 28, 
+    overflow: "hidden", 
+    shadowColor: "#3B82F6", 
+    shadowOffset: { width: 0, height: 4 }, 
+    shadowOpacity: 0.3, 
+    shadowRadius: 8, 
+    elevation: 5 
+  },
+  fabGradient: { flex: 1, alignItems: "center", justifyContent: "center" },
+  modalContainer: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
+  modalContentFull: { width: "90%", maxHeight: "85%", borderRadius: 24, padding: 20 },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
+  modalTitle: { fontSize: 20, fontFamily: "Inter_700Bold", color: "#000" },
+  aiGenerateOption: { backgroundColor: "#F3E8FF", borderRadius: 16, marginBottom: 24, borderWidth: 1, borderColor: "#E9D5FF" },
+  aiContent: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20 },
+  aiTitle: { fontSize: 18, fontFamily: "Inter_700Bold", color: "#8B5CF6" },
+  aiSubtitle: { fontSize: 12, color: "#6B7280", marginTop: 4 },
+  aiIconContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  divider: { flexDirection: "row", alignItems: "center", marginVertical: 16 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { fontSize: 12, marginHorizontal: 12, fontFamily: "Inter_500Medium" },
+  typeOptionRow: {
+    flexDirection: "row",
     alignItems: "center",
-    padding: 32,
+    padding: 16,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#F0F0F0",
   },
-  modalContent: {
-    width: "100%",
-    maxWidth: 340,
-    borderRadius: 20,
-    padding: 24,
-  },
-  modalTitle: {
-    fontSize: 18,
+  typeOptionIconRow: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", marginRight: 16 },
+  typeOptionTextRow: { flex: 1, fontSize: 16, fontFamily: "Inter_500Medium", color: "#000" },
+  detailStatusBadge: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 16, gap: 6 },
+  detailStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  detailStatusText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  detailNumber: { fontSize: 14, color: "#6B7280", marginBottom: 16 },
+  detailRow: { flexDirection: "row", alignItems: "center", marginBottom: 16, flexWrap: "wrap" },
+  detailLabel: { fontSize: 14, color: "#6B7280", marginLeft: 8, flex: 1 },
+  detailValue: { fontSize: 14, color: "#000", fontFamily: "Inter_500Medium" },
+  detailAmount: { fontSize: 18, fontFamily: "Inter_700Bold" },
+  itemsSection: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: "#F0F0F0" },
+  itemsTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#000", marginBottom: 12 },
+  itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#F0F0F0" },
+  itemName: { flex: 2, fontSize: 14, color: "#000" },
+  itemQty: { flex: 1, fontSize: 14, color: "#6B7280", textAlign: "center" },
+  itemPrice: { flex: 1, fontSize: 14, color: "#6B7280", textAlign: "right" },
+  itemTotal: { flex: 1, fontSize: 14, fontWeight: "bold", textAlign: "right", color: "#3B82F6" },
+  aiRobotImage: { width: 60, height: 60 },
+  statusFilterRow: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    gap: 12,
     marginBottom: 8,
   },
-  modalMessage: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 24,
+  statusFilterTab: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
   },
-  modalActions: {
+  activeStatusFilterTab: {
+    backgroundColor: "#3B82F6",
+  },
+  statusFilterText: {
+    fontSize: 13,
+    color: "#6B7280",
+    fontFamily: "Inter_500Medium",
+  },
+  activeStatusFilterText: {
+    color: "#FFFFFF",
+  },
+  statusBadge: {
     flexDirection: "row",
-    gap: 12,
-  },
-  modalBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
     alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    alignSelf: "flex-start",
   },
-  modalBtnText: {
-    fontSize: 15,
+  statusBadgeText: {
+    fontSize: 10,
+    fontFamily: "Inter_600SemiBold",
+  },
+  markPaidBtn: {
+    marginTop: 16,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  markPaidGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+  },
+  markPaidText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
+  downloadBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  downloadPdfBtn: {
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  downloadPdfGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+  },
+  downloadPdfText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
   },
 });

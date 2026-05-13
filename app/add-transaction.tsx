@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useMemo, useState, useEffect, } from "react";
 import {
   Alert,
   Image,
@@ -22,7 +23,7 @@ import { useApp, TransactionType } from "@/context/AppContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import type { TranslationKey } from "@/i18n/translations";
-import { today, parseAmount, isValidDateStr } from "@/utils/format";
+import { today, parseAmount, isValidDateStr, getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
 
 const INCOME_CATEGORIES = [
   "Sales", "Services", "Consulting", "Rent Received", "Investment", "Refund", "Other Income",
@@ -93,7 +94,17 @@ export default function AddTransactionScreen() {
   const [paymentMode, setPaymentMode] = useState(editTx?.paymentMode ?? "cash");
   const [attachment, setAttachment] = useState(editTx?.attachment ?? "");
   const [showImagePreview, setShowImagePreview] = useState(false);
+const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+const currencyCode = getCurrencyCode();
+const currencySymbol = getCurrencySymbol();
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing add-transaction screen");
+    setCurrencyRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
   const categories = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
   const parsedAmount = useMemo(() => parseAmount(amount), [amount]);
@@ -177,7 +188,7 @@ export default function AddTransactionScreen() {
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View key={currencyRefreshKey} style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <Pressable onPress={() => router.back()} accessibilityLabel="Close" accessibilityRole="button">
           <Feather name="x" size={22} color={theme.textSecondary} />
@@ -294,20 +305,20 @@ export default function AddTransactionScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            {t("amount")} (EGP)
-          </Text>
-          <View
-            style={[
-              styles.amountRow,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            <Text
-              style={[styles.egpSymbol, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}
-            >
-              ج.م
-            </Text>
+  <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+    {t("amount")} ({currencyCode})
+  </Text>
+  <View
+    style={[
+      styles.amountRow,
+      { backgroundColor: theme.card, borderColor: theme.border },
+    ]}
+  >
+    <Text
+      style={[styles.egpSymbol, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}
+    >
+      {currencySymbol}
+    </Text>
             <TextInput
               style={[
                 styles.amountInput,

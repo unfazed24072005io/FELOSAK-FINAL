@@ -1,3 +1,4 @@
+import { Feather } from "@expo/vector-icons";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 import { Tabs } from "expo-router";
 import { NativeTabs, Icon, Label } from "expo-router/unstable-native-tabs";
@@ -6,35 +7,26 @@ import { Platform, StyleSheet, useColorScheme } from "react-native";
 import React from "react";
 import Colors from "@/constants/colors";
 import { useLanguage } from "@/context/LanguageContext";
-
+import { Text } from "react-native";
 function NativeTabLayout() {
   const { t } = useLanguage();
   return (
-    <NativeTabs>
+    <NativeTabs initialRouteName="index">
       <NativeTabs.Trigger name="index">
         <Icon sf={{ default: "book", selected: "book.fill" }} />
         <Label>{t("books")}</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="transactions">
-        <Icon sf={{ default: "list.bullet", selected: "list.bullet" }} />
-        <Label>{t("transactions")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="debtors">
         <Icon sf={{ default: "person.2", selected: "person.2.fill" }} />
         <Label>inOut</Label>
       </NativeTabs.Trigger>
-      
-      <NativeTabs.Trigger name="compliance">
-        <Icon sf={{ default: "checkmark.shield", selected: "checkmark.shield.fill" }} />
-        <Label>{t("compliance") || "Compliance"}</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="inventory">
         <Icon sf={{ default: "storefront", selected: "storefront.fill" }} />
-        <Label>{t("Inventory")}</Label>
+        <Label>Inventory</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="analytics">
-        <Icon sf={{ default: "chart.bar", selected: "chart.bar.fill" }} />
-        <Label>{t("analytics")}</Label>
+      <NativeTabs.Trigger name="settings">
+        <Icon sf={{ default: "gearshape", selected: "gearshape.fill" }} />
+        <Label>Settings</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -48,6 +40,7 @@ function ClassicTabLayout() {
 
   return (
     <Tabs
+      initialRouteName="index"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: theme.tint,
@@ -92,19 +85,9 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="transactions"
-        options={{
-          title: t("transactions"),
-          tabBarIcon: ({ color, size }) => {
-            const { Feather } = require("@expo/vector-icons");
-            return <Feather name="list" size={size} color={color} />;
-          },
-        }}
-      />
-      <Tabs.Screen
         name="debtors"
         options={{
-          title: "Cash In / Cash Out",
+          title: "Customer",
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
             return <Feather name="users" size={size} color={color} />;
@@ -112,25 +95,15 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="invoices"
-        options={{
-          title: t("invoices") || "Invoices",
-          tabBarIcon: ({ color, size }) => {
-            const { Feather } = require("@expo/vector-icons");
-            return <Feather name="file-text" size={size} color={color} />;
-          },
-        }}
-      />
-      <Tabs.Screen
-        name="compliance"
-        options={{
-          title: t("compliance") || "Compliance",
-          tabBarIcon: ({ color, size }) => {
-            const { Feather } = require("@expo/vector-icons");
-            return <Feather name="shield" size={size} color={color} />;
-          },
-        }}
-      />
+  name="invoices"
+  options={{
+    title: "Documents",
+    tabBarLabel: "Documents",
+    tabBarIcon: ({ color, size }) => (
+      <Feather name="file-text" size={size} color={color} />
+    ),
+  }}
+/>
       <Tabs.Screen
         name="store"
         options={{
@@ -142,18 +115,18 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="analytics"
+        name="settings"
         options={{
-          title: t("analytics"),
+          title: "Settings",
           tabBarIcon: ({ color, size }) => {
             const { Feather } = require("@expo/vector-icons");
-            return <Feather name="bar-chart-2" size={size} color={color} />;
+            return <Feather name="settings" size={size} color={color} />;
           },
         }}
       />
     </Tabs>
   );
-}
+}	
 
 export default function TabLayout() {
   if (isLiquidGlassAvailable()) {

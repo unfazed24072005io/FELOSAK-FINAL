@@ -8,13 +8,13 @@ import React, {
 } from "react";
 import { useAuth } from "./AuthContext";
 import { db } from "@/config/firebase";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   collection,
   addDoc,
   updateDoc,
   deleteDoc,
   doc,
+  getDoc,
   query,
   where,
   orderBy,
@@ -22,6 +22,7 @@ import {
   Timestamp,
   writeBatch,
 } from "firebase/firestore";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type TransactionType = "income" | "expense";
 
@@ -102,13 +103,32 @@ export interface Invoice {
   bookId: string;
 }
 
+// NEW: Document types for AI generation
+export type DocumentType = "Invoice" | "Quote" | "PO" | "Credit Note" | "Purchase Order" | "Delivery Note";
+
+export interface Document {
+  id: string;
+  number: string;
+  type: DocumentType;
+  partyName: string;
+  amount: number;
+  date: string;
+  status: "draft" | "sent" | "paid" | "overdue";
+  items?: Array<{ name: string; quantity: number; price: number; total: number }>;
+  dueDate?: string;
+  notes?: string;
+  createdAt: number;
+  userId: string;
+  bookId: string;
+}
+
 interface AppContextValue {
   books: CashBook[];
   activeBook: CashBook | null;
   setActiveBook: (book: CashBook | null) => void;
-  createBook: (name: string, description: string, isCloud: boolean) => Promise<void>;
+  createBook: (name: string, description: string, isCloud: boolean, icon?: string) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
-  updateBook: (id: string, data: { name?: string; description?: string }) => Promise<void>;
+  updateBook: (id: string, data: { name?: string; description?: string; icon?: string }) => Promise<void>;
   transactions: Transaction[];
   debts: Debt[];
   totalBalanceAllBooks: number;
@@ -117,9 +137,14 @@ interface AppContextValue {
   products: Product[];
   pin: string | null;
   invoices: Invoice[];
+  documents: Document[];
   addInvoice: (invoice: Omit<Invoice, "id" | "createdAt" | "userId" | "bookId">) => Promise<void>;
   updateInvoice: (id: string, invoice: Partial<Invoice>) => Promise<void>;
   deleteInvoice: (id: string) => Promise<void>;
+  addDocument: (document: Omit<Document, "id" | "createdAt" | "userId" | "bookId">) => Promise<Document>;
+  updateDocument: (id: string, document: Partial<Document>) => Promise<void>;
+  deleteDocument: (id: string) => Promise<void>;
+  fetchDocuments: (bookId: string) => Promise<void>;
   isLocked: boolean;
   addTransaction: (t: Omit<Transaction, "id" | "createdAt" | "userId" | "bookId">) => Promise<void>;
   updateTransaction: (id: string, t: Partial<Transaction>) => Promise<void>;
@@ -144,6 +169,7 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 // Storage keys for local-only data
 const PIN_KEY = "misr_pin";
+const LAST_ACTIVE_BOOK_KEY = "lastActiveBookId";
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -159,6 +185,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [totalIncomeAllBooks, setTotalIncomeAllBooks] = useState(0);
   const [totalExpenseAllBooks, setTotalExpenseAllBooks] = useState(0);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  // NEW: Documents state for AI-generated documents
+  const [documents, setDocuments] = useState<Document[]>([]);
 
   // Load PIN from AsyncStorage
   useEffect(() => {
@@ -176,13 +204,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const calculateAllBooksTotals = useCallback(async () => {
-  if (!user) return { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
+  const userId = user?.id;
+  
+  if (!userId) {
+    console.log("No user ID, skipping totals calculation");
+    return { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
+  }
   
   try {
-    // Get all transactions for the user across all books
+    console.log("Calculating totals for user:", userId);
+    
     const transactionsQuery = query(
       collection(db, 'transactions'),
-      where('userId', '==', user.id)
+      where('userId', '==', userId)
     );
     
     const transactionsSnapshot = await getDocs(transactionsQuery);
@@ -199,6 +233,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
     
+    console.log("Totals calculated - Income:", totalIncome, "Expense:", totalExpense, "Balance:", totalIncome - totalExpense);
+    
     return {
       totalBalance: totalIncome - totalExpense,
       totalIncome: totalIncome,
@@ -209,12 +245,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
   }
 }, [user]);
-const [allBooksTotals, setAllBooksTotals] = useState({ totalBalance: 0, totalIncome: 0, totalExpense: 0 });
-useEffect(() => {
-  if (user) {
-    calculateAllBooksTotals().then(setAllBooksTotals);
-  }
-}, [user, transactions]);
+
+  const [allBooksTotals, setAllBooksTotals] = useState({ totalBalance: 0, totalIncome: 0, totalExpense: 0 });
+  
+  useEffect(() => {
+    if (user) {
+      calculateAllBooksTotals().then(setAllBooksTotals);
+    }
+  }, [user, transactions]);
 
   useEffect(() => {
     calculateAllBooksTotals();
@@ -222,120 +260,147 @@ useEffect(() => {
 
   // Load book data
   const loadBookData = useCallback(async (book: CashBook) => {
-    if (!user) {
-      console.log("No user yet, waiting...");
-      return;
-    }
+  const userId = user?.id;
+  
+  if (!userId) {
+    console.log("No user yet, waiting...");
+    return;
+  }
 
-    console.log("Loading data for book:", book.id, "User:", user.id);
+  console.log("Loading data for book:", book.id, "User:", userId);
 
-    try {
-      setTransactions([]);
-      setDebts([]);
-      setProducts([]);
-      setInvoices([]);
+  try {
+    setTransactions([]);
+    setDebts([]);
+    setProducts([]);
+    setInvoices([]);
+    setDocuments([]);
 
-      // Load transactions
-      const txQuery = query(
-        collection(db, 'transactions'),
-        where('bookId', '==', book.id),
-        where('userId', '==', user.id),
-        orderBy('date', 'desc')
-      );
-      const txSnapshot = await getDocs(txQuery);
-      console.log("Transactions found:", txSnapshot.size);
-      
-      const loadedTransactions: Transaction[] = txSnapshot.docs.map(doc => ({
-        id: doc.id,
-        type: doc.data().type,
-        amount: doc.data().amount,
-        category: doc.data().category,
-        note: doc.data().note || "",
-        date: doc.data().date,
-        paymentMode: doc.data().paymentMode || "cash",
-        attachment: doc.data().attachment || "",
-        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-        userId: doc.data().userId,
-        bookId: doc.data().bookId,
-      }));
-      setTransactions(loadedTransactions);
+    // Load Transactions
+    const txQuery = query(
+      collection(db, 'transactions'),
+      where('bookId', '==', book.id),
+      where('userId', '==', userId),
+      orderBy('date', 'desc')
+    );
+    const txSnapshot = await getDocs(txQuery);
+    console.log("Transactions found:", txSnapshot.size);
+    
+    const loadedTransactions: Transaction[] = txSnapshot.docs.map(doc => ({
+      id: doc.id,
+      type: doc.data().type,
+      amount: doc.data().amount,
+      category: doc.data().category,
+      note: doc.data().note || "",
+      date: doc.data().date,
+      paymentMode: doc.data().paymentMode || "cash",
+      attachment: doc.data().attachment || "",
+      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+      userId: doc.data().userId,
+      bookId: doc.data().bookId,
+    }));
+    setTransactions(loadedTransactions);
 
-      // Load debts
-      const debtQuery = query(
-        collection(db, 'debtors'),
-        where('bookId', '==', book.id),
-        where('userId', '==', user.id),
-        orderBy('createdAt', 'desc')
-      );
-      const debtSnapshot = await getDocs(debtQuery);
-      const loadedDebts: Debt[] = debtSnapshot.docs.map(doc => ({
-        id: doc.id,
-        direction: doc.data().direction,
-        name: doc.data().name,
-        amount: doc.data().amount,
-        note: doc.data().note || "",
-        phone: doc.data().phone || "",
-        dueDate: doc.data().dueDate || "",
-        settled: doc.data().settled || false,
-        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-        userId: doc.data().userId,
-        bookId: doc.data().bookId,
-      }));
-      setDebts(loadedDebts);
+    // Load Debts
+    const debtQuery = query(
+      collection(db, 'debtors'),
+      where('bookId', '==', book.id),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+    const debtSnapshot = await getDocs(debtQuery);
+    const loadedDebts: Debt[] = debtSnapshot.docs.map(doc => ({
+      id: doc.id,
+      direction: doc.data().direction,
+      name: doc.data().name,
+      amount: doc.data().amount,
+      note: doc.data().note || "",
+      phone: doc.data().phone || "",
+      dueDate: doc.data().dueDate || "",
+      settled: doc.data().settled || false,
+      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+      userId: doc.data().userId,
+      bookId: doc.data().bookId,
+    }));
+    setDebts(loadedDebts);
 
-      // Load products
-      const prodQuery = query(
-        collection(db, 'products'),
-        where('bookId', '==', book.id),
-        where('userId', '==', user.id),
-        orderBy('createdAt', 'desc')
-      );
-      const prodSnapshot = await getDocs(prodQuery);
-      const loadedProducts: Product[] = prodSnapshot.docs.map(doc => ({
-        id: doc.id,
-        name: doc.data().name,
-        description: doc.data().description || "",
-        price: doc.data().price,
-        image: doc.data().image || "",
-        category: doc.data().category || "",
-        inStock: doc.data().inStock !== false,
-        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-        userId: doc.data().userId,
-        bookId: doc.data().bookId,
-      }));
-      setProducts(loadedProducts);
+    // Load Products
+    const prodQuery = query(
+      collection(db, 'products'),
+      where('bookId', '==', book.id),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+    const prodSnapshot = await getDocs(prodQuery);
+    const loadedProducts: Product[] = prodSnapshot.docs.map(doc => ({
+      id: doc.id,
+      name: doc.data().name,
+      description: doc.data().description || "",
+      price: doc.data().price,
+      image: doc.data().image || "",
+      category: doc.data().category || "",
+      inStock: doc.data().inStock !== false,
+      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+      userId: doc.data().userId,
+      bookId: doc.data().bookId,
+    }));
+    setProducts(loadedProducts);
 
-      // Load invoices
-      const invoiceQuery = query(
-        collection(db, 'invoices'),
-        where('bookId', '==', book.id),
-        where('userId', '==', user.id),
-        orderBy('createdAt', 'desc')
-      );
-      const invoiceSnapshot = await getDocs(invoiceQuery);
-      const loadedInvoices: Invoice[] = invoiceSnapshot.docs.map(doc => ({
-        id: doc.id,
-        number: doc.data().number,
-        customerId: doc.data().customerId,
-        customerName: doc.data().customerName,
-        amount: doc.data().amount,
-        status: doc.data().status,
-        dueDate: doc.data().dueDate,
-        invoiceDate: doc.data().invoiceDate,
-        items: doc.data().items || [],
-        notes: doc.data().notes || "",
-        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-        userId: doc.data().userId,
-        bookId: doc.data().bookId,
-      }));
-      setInvoices(loadedInvoices);
+    // Load Invoices
+    const invoiceQuery = query(
+      collection(db, 'invoices'),
+      where('bookId', '==', book.id),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+    const invoiceSnapshot = await getDocs(invoiceQuery);
+    const loadedInvoices: Invoice[] = invoiceSnapshot.docs.map(doc => ({
+      id: doc.id,
+      number: doc.data().number,
+      customerId: doc.data().customerId,
+      customerName: doc.data().customerName,
+      amount: doc.data().amount,
+      status: doc.data().status,
+      dueDate: doc.data().dueDate,
+      invoiceDate: doc.data().invoiceDate,
+      items: doc.data().items || [],
+      notes: doc.data().notes || "",
+      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+      userId: doc.data().userId,
+      bookId: doc.data().bookId,
+    }));
+    setInvoices(loadedInvoices);
 
-    } catch (error) {
-      console.error("Failed to load book data:", error);
-    }
-  }, [user]);
+    // Load Documents
+    const docQuery = query(
+      collection(db, 'documents'),
+      where('bookId', '==', book.id),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc')
+    );
+    const docSnapshot = await getDocs(docQuery);
+    const loadedDocuments: Document[] = docSnapshot.docs.map(doc => ({
+      id: doc.id,
+      number: doc.data().number,
+      type: doc.data().type,
+      partyName: doc.data().partyName,
+      amount: doc.data().amount,
+      date: doc.data().date,
+      status: doc.data().status,
+      items: doc.data().items || [],
+      dueDate: doc.data().dueDate,
+      notes: doc.data().notes || "",
+      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+      userId: doc.data().userId,
+      bookId: doc.data().bookId,
+    }));
+    setDocuments(loadedDocuments);
+    console.log("Documents found:", loadedDocuments.length);
 
-  // Invoice CRUD operations
+  } catch (error) {
+    console.error("Failed to load book data:", error);
+  }
+}, [user]);
   const addInvoice = useCallback(async (invoice: Omit<Invoice, "id" | "createdAt" | "userId" | "bookId">) => {
     if (!user || !activeBook) throw new Error("No active book or user");
     
@@ -361,10 +426,17 @@ useEffect(() => {
   const updateInvoice = useCallback(async (id: string, invoice: Partial<Invoice>) => {
     if (!user) return;
     
-    const invoiceRef = doc(db, 'invoices', id);
-    await updateDoc(invoiceRef, invoice);
+    console.log("Updating invoice:", id, invoice);
     
     setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, ...invoice } : inv));
+    
+    try {
+      const invoiceRef = doc(db, 'invoices', id);
+      await updateDoc(invoiceRef, invoice);
+      console.log("Firestore update successful");
+    } catch (error) {
+      console.error("Failed to update invoice in Firestore:", error);
+    }
   }, [user]);
 
   const deleteInvoice = useCallback(async (id: string) => {
@@ -376,85 +448,205 @@ useEffect(() => {
     setInvoices(prev => prev.filter(inv => inv.id !== id));
   }, [user]);
 
+  // NEW: Document CRUD operations
+  const addDocument = useCallback(async (document: Omit<Document, "id" | "createdAt" | "userId" | "bookId">) => {
+    if (!user || !activeBook) throw new Error("No active book or user");
+    
+    const newDocument = {
+      ...document,
+      userId: user.id,
+      bookId: activeBook.id,
+      createdAt: Timestamp.now(),
+    };
+    
+    const docRef = await addDoc(collection(db, 'documents'), newDocument);
+    const createdDocument: Document = {
+      ...document,
+      id: docRef.id,
+      createdAt: Date.now(),
+      userId: user.id,
+      bookId: activeBook.id,
+    };
+    
+    setDocuments(prev => [createdDocument, ...prev]);
+    return createdDocument;
+  }, [user, activeBook]);
+
+  const updateDocument = useCallback(async (id: string, documentData: Partial<Document>) => {
+    if (!user) return;
+    
+    try {
+      const docRef = doc(db, 'documents', id);
+      await updateDoc(docRef, documentData);
+      
+      setDocuments(prev => prev.map(doc => 
+        doc.id === id ? { ...doc, ...documentData } : doc
+      ));
+    } catch (error) {
+      console.error("Failed to update document:", error);
+    }
+  }, [user]);
+
+  const deleteDocument = useCallback(async (id: string) => {
+    if (!user) return;
+    
+    const docRef = doc(db, 'documents', id);
+    await deleteDoc(docRef);
+    
+    setDocuments(prev => prev.filter(doc => doc.id !== id));
+  }, [user]);
+
+  const fetchDocuments = useCallback(async (bookId: string) => {
+    if (!user) return;
+    
+    try {
+      const docQuery = query(
+        collection(db, 'documents'),
+        where('bookId', '==', bookId),
+        where('userId', '==', user.id),
+        orderBy('createdAt', 'desc')
+      );
+      const snapshot = await getDocs(docQuery);
+      const loadedDocs: Document[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        number: doc.data().number,
+        type: doc.data().type,
+        partyName: doc.data().partyName,
+        amount: doc.data().amount,
+        date: doc.data().date,
+        status: doc.data().status,
+        items: doc.data().items || [],
+        dueDate: doc.data().dueDate,
+        notes: doc.data().notes || "",
+        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+        userId: doc.data().userId,
+        bookId: doc.data().bookId,
+      }));
+      setDocuments(loadedDocs);
+    } catch (error) {
+      console.error("Failed to fetch documents:", error);
+    }
+  }, [user]);
+
   const setActiveBook = useCallback((book: CashBook | null) => {
     console.log("Setting active book:", book?.id, book?.name);
     setActiveBookState(book);
     
     if (book) {
-      AsyncStorage.setItem('lastActiveBookId', book.id);
+      AsyncStorage.setItem(LAST_ACTIVE_BOOK_KEY, book.id);
       loadBookData(book);
     } else {
-      AsyncStorage.removeItem('lastActiveBookId');
+      AsyncStorage.removeItem(LAST_ACTIVE_BOOK_KEY);
       setTransactions([]);
       setDebts([]);
       setProducts([]);
       setInvoices([]);
+      setDocuments([]);
     }
   }, [loadBookData]);
 
   const loadBooks = useCallback(async () => {
-    setIsLoadingBooks(true);
-    try {
-      if (!user) {
-        setBooks([]);
-        return;
-      }
-
-      const q = query(
-        collection(db, 'books'),
-        where('userId', '==', user.id),
-        orderBy('createdAt', 'desc')
-      );
-      const snapshot = await getDocs(q);
-      const loadedBooks: CashBook[] = snapshot.docs.map(doc => ({
+  const userId = user?.id;
+  
+  console.log("📚 loadBooks called, user:", userId);
+  
+  if (!userId) {
+    console.log("No user found, skipping book load");
+    setIsLoadingBooks(false);
+    setBooks([]);
+    return;
+  }
+  
+  setIsLoadingBooks(true);
+  try {
+    console.log("📚 Loading books for user:", userId);
+    
+    const loadedBooks: CashBook[] = [];
+    
+    // 1. ✅ Load books the user OWNS (from books collection)
+    const ownedBooksQuery = query(
+      collection(db, 'books'),
+      where('userId', '==', userId)
+    );
+    const ownedBooksSnapshot = await getDocs(ownedBooksQuery);
+    console.log("Found", ownedBooksSnapshot.size, "owned books");
+    
+    ownedBooksSnapshot.forEach(doc => {
+      const bookData = doc.data();
+      loadedBooks.push({
         id: doc.id,
-        name: doc.data().name,
-        description: doc.data().description || "",
+        name: bookData.name || "Unnamed Book",
+        description: bookData.description || "",
         isCloud: true,
-        role: doc.data().role || "owner",
-        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-        userId: doc.data().userId,
-        color: doc.data().color,
-        icon: doc.data().icon,
-      }));
-
-      setBooks(loadedBooks);
+        role: "owner",
+        createdAt: bookData.createdAt?.toDate?.()?.getTime() || Date.now(),
+        userId: bookData.userId,
+        color: bookData.color,
+        icon: bookData.icon,
+      });
+    });
+    
+    // 2. ✅ Load books SHARED with the user (from userBooks collection)
+    const userBooksQuery = query(
+      collection(db, 'userBooks'),
+      where('userId', '==', userId)
+    );
+    const userBooksSnapshot = await getDocs(userBooksQuery);
+    console.log("Found", userBooksSnapshot.size, "shared book entries");
+    
+    for (const ubDoc of userBooksSnapshot.docs) {
+      const userBookData = ubDoc.data();
+      const bookId = userBookData.bookId;
       
-      if (loadedBooks.length > 0) {
-        const lastActiveBookId = await AsyncStorage.getItem('lastActiveBookId');
-        const bookToActivate = lastActiveBookId 
-          ? loadedBooks.find(b => b.id === lastActiveBookId) 
-          : loadedBooks[0];
-        
-        if (bookToActivate) {
-          setActiveBook(bookToActivate);
+      if (!bookId) continue;
+      
+      const bookRef = doc(db, 'books', bookId);
+      const bookSnap = await getDoc(bookRef);
+      
+      if (bookSnap.exists()) {
+        const bookData = bookSnap.data();
+        // Check if not already added as owned
+        if (!loadedBooks.some(b => b.id === bookSnap.id)) {
+          loadedBooks.push({
+            id: bookSnap.id,
+            name: bookData.name || "Unnamed Book",
+            description: bookData.description || "",
+            isCloud: true,
+            role: userBookData.role || "viewer",
+            createdAt: bookData.createdAt?.toDate?.()?.getTime() || Date.now(),
+            userId: bookData.userId,
+            color: bookData.color,
+            icon: bookData.icon,
+          });
+          console.log("✅ Loaded shared book:", bookData.name);
         }
-      } else if (loadedBooks.length === 0 && user) {
-        const defaultBook: Omit<CashBook, "id"> = {
-          name: "My Cash Book",
-          description: "Default cash book",
-          isCloud: true,
-          role: "owner",
-          createdAt: Date.now(),
-          userId: user.id,
-          color: "#3B82F6",
-          icon: "📒",
-        };
-        const docRef = await addDoc(collection(db, 'books'), {
-          ...defaultBook,
-          createdAt: Timestamp.now(),
-        });
-        const newBook = { ...defaultBook, id: docRef.id };
-        setBooks([newBook]);
-        setActiveBook(newBook);
       }
-    } catch (error) {
-      console.error("Failed to load books:", error);
-    } finally {
-      setIsLoadingBooks(false);
     }
-  }, [user, setActiveBook]);
-
+    
+    console.log("Total books loaded:", loadedBooks.length);
+    setBooks(loadedBooks);
+    
+    if (loadedBooks.length > 0) {
+      const lastActiveBookId = await AsyncStorage.getItem(LAST_ACTIVE_BOOK_KEY);
+      const bookToActivate = lastActiveBookId 
+        ? loadedBooks.find(b => b.id === lastActiveBookId) 
+        : loadedBooks[0];
+      
+      if (bookToActivate) {
+        console.log("Activating book:", bookToActivate.name);
+        setActiveBook(bookToActivate);
+      }
+    } else {
+      console.log("No books found for user");
+      setActiveBook(null);
+    }
+    
+  } catch (error) {
+    console.error("Failed to load books:", error);
+  } finally {
+    setIsLoadingBooks(false);
+  }
+}, [user, setActiveBook]);
   useEffect(() => {
     if (user && activeBook) {
       console.log("User became available, reloading data for active book");
@@ -466,7 +658,7 @@ useEffect(() => {
     loadBooks();
   }, [loadBooks]);
 
-  const createBook = useCallback(async (name: string, description: string, isCloud: boolean) => {
+  const createBook = useCallback(async (name: string, description: string, isCloud: boolean, icon?: string) => {
     if (!user) {
       console.error("Cannot create book: User not authenticated");
       throw new Error("You must be logged in to create a book");
@@ -480,7 +672,7 @@ useEffect(() => {
       createdAt: Date.now(),
       userId: user.id,
       color: "#" + Math.floor(Math.random()*16777215).toString(16),
-      icon: "📒",
+      icon: icon || "📒",
     };
 
     const docRef = await addDoc(collection(db, 'books'), {
@@ -514,6 +706,11 @@ useEffect(() => {
     const invoiceSnapshot = await getDocs(invoiceQuery);
     invoiceSnapshot.forEach(doc => batch.delete(doc.ref));
     
+    // NEW: Delete documents
+    const docQuery = query(collection(db, 'documents'), where('bookId', '==', id));
+    const docSnapshot = await getDocs(docQuery);
+    docSnapshot.forEach(doc => batch.delete(doc.ref));
+    
     const bookRef = doc(db, 'books', id);
     batch.delete(bookRef);
     
@@ -525,7 +722,7 @@ useEffect(() => {
     }
   }, [user, activeBook, setActiveBook]);
 
-  const updateBook = useCallback(async (id: string, data: { name?: string; description?: string }) => {
+  const updateBook = useCallback(async (id: string, data: { name?: string; description?: string; icon?: string }) => {
     if (!user) return;
     
     const bookRef = doc(db, 'books', id);
@@ -541,11 +738,12 @@ useEffect(() => {
   }, [user, activeBook]);
 
   const refreshBooks = useCallback(async () => {
-    await loadBooks();
-    if (activeBook) {
-      await loadBookData(activeBook);
-    }
-  }, [loadBooks, loadBookData, activeBook]);
+  console.log("🔄 Manually refreshing books...");
+  await loadBooks();
+  if (activeBook) {
+    await loadBookData(activeBook);
+  }
+}, [loadBooks, loadBookData, activeBook]);
 
   const addTransaction = useCallback(async (t: Omit<Transaction, "id" | "createdAt" | "userId" | "bookId">) => {
     if (!user) throw new Error("User not authenticated");
@@ -729,9 +927,14 @@ useEffect(() => {
       products,
       pin,
       invoices,
+      documents,
       addInvoice,
       updateInvoice,
       deleteInvoice,
+      addDocument,
+      updateDocument,
+      deleteDocument,
+      fetchDocuments,
       isLocked,
       addTransaction,
       updateTransaction,
@@ -766,9 +969,14 @@ useEffect(() => {
       products,
       pin,
       invoices,
+      documents,
       addInvoice,
       updateInvoice,
       deleteInvoice,
+      addDocument,
+      updateDocument,
+      deleteDocument,
+      fetchDocuments,
       isLocked,
       addTransaction,
       updateTransaction,

@@ -1,4 +1,5 @@
-import React, { useCallback, useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useFocusEffect } from "expo-router";
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   FlatList,
@@ -10,6 +11,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
   useColorScheme,
 } from "react-native";
@@ -20,7 +22,7 @@ import * as Haptics from "expo-haptics";
 import { useApp, Product } from "@/context/AppContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
-import { formatEGP } from "@/utils/format";
+import { formatEGP, getCurrencyCode, subscribeToCurrencyChanges } from "@/utils/format";
 
 export default function StoreScreen() {
   const insets = useSafeAreaInsets();
@@ -31,9 +33,32 @@ export default function StoreScreen() {
   const { t } = useLanguage();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearchBar, setShowSearchBar] = useState(false);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [filterStock, setFilterStock] = useState<"all" | "inStock" | "outOfStock">("all");
+const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing store screen");
+    setCurrencyRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
+
+  const filteredProducts = products.filter(product => {
+    // Search filter
+    const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase());
+    // Stock filter
+    const matchesStock = 
+      filterStock === "all" ? true :
+      filterStock === "inStock" ? (product.quantity || 0) > 0 :
+      (product.quantity || 0) === 0;
+    return matchesSearch && matchesStock;
+  });
 
   const handleShare = useCallback(async () => {
     if (!activeBook) return;
@@ -59,13 +84,40 @@ export default function StoreScreen() {
     setDeleteTargetId(null);
   }, []);
 
-  const handleToggleStock = useCallback((product: Product) => {
-    Haptics.selectionAsync();
-    updateProduct(product.id, { inStock: !product.inStock });
+  const handleUpdateQuantity = useCallback((product: Product, change: number) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const newQuantity = Math.max(0, (product.quantity || 0) + change);
+    updateProduct(product.id, { quantity: newQuantity, inStock: newQuantity > 0 });
   }, [updateProduct]);
 
+  const toggleSearchBar = () => {
+    Haptics.selectionAsync();
+    setShowSearchBar(!showSearchBar);
+    if (showSearchBar) {
+      setSearchQuery("");
+    }
+  };
+
+  const openFilterModal = () => {
+    Haptics.selectionAsync();
+    setShowFilterModal(true);
+  };
+
+  const applyFilter = (stock: "all" | "inStock" | "outOfStock") => {
+    Haptics.selectionAsync();
+    setFilterStock(stock);
+    setShowFilterModal(false);
+  };
+
+  const calculateTotalCost = useCallback((product: Product) => {
+  return (product.quantity || 0) * (product.costPrice || product.price);
+}, []);
+
   const renderProduct = useCallback(
-    ({ item }: { item: Product }) => (
+  ({ item }: { item: Product }) => {
+    const currencyCode = getCurrencyCode();
+    
+    return (
       <Pressable
         onPress={() =>
           router.push({ pathname: "/add-product", params: { editId: item.id } })
@@ -80,6 +132,7 @@ export default function StoreScreen() {
           },
         ]}
       >
+        {/* Left - Image */}
         {item.image ? (
           <Image source={{ uri: item.image }} style={styles.productImage} />
         ) : (
@@ -87,6 +140,8 @@ export default function StoreScreen() {
             <Feather name="package" size={40} color={theme.textSecondary} />
           </View>
         )}
+        
+        {/* Middle - Product Details */}
         <View style={styles.productInfo}>
           <Text
             style={[styles.productName, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
@@ -94,44 +149,73 @@ export default function StoreScreen() {
           >
             {item.name}
           </Text>
-          <Text style={[styles.productPrice, { color: theme.tint, fontFamily: "Inter_700Bold" }]}>
-            {formatEGP(item.price)}
-          </Text>
-          {item.category ? (
-            <View style={[styles.categoryBadge, { backgroundColor: theme.tint + "22" }]}>
-              <Text
-                style={[styles.categoryText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}
-                numberOfLines={1}
-              >
-                {item.category}
+          
+          <View style={styles.priceRow}>
+            {item.costPrice && (
+              <Text style={[styles.costPrice, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                Cost: {currencyCode} {item.costPrice.toLocaleString()}
               </Text>
+            )}
+          </View>
+          
+          {/* Total Cost Card */}
+          <View style={[styles.totalCostCard, { backgroundColor: theme.surface + '80' }]}>
+            <Text style={[styles.totalCostLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              Total Value:
+            </Text>
+            <Text style={[styles.totalCostValue, { color: theme.tint, fontFamily: "Inter_700Bold" }]}>
+              {currencyCode} {calculateTotalCost(item).toLocaleString()}
+            </Text>
+          </View>
+
+          <View style={styles.stockControls}>
+            <View style={styles.quantityControls}>
+              <Pressable
+                onPress={() => handleUpdateQuantity(item, -1)}
+                style={({ pressed }) => [
+                  styles.quantityBtn,
+                  {
+                    backgroundColor: theme.expense + '20',
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Feather name="minus" size={16} color={theme.expense} />
+              </Pressable>
+              <Text style={[styles.quantityText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                {(item.quantity || 0)}
+              </Text>
+              <Pressable
+                onPress={() => handleUpdateQuantity(item, 1)}
+                style={({ pressed }) => [
+                  styles.quantityBtn,
+                  {
+                    backgroundColor: theme.income + '20',
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Feather name="plus" size={16} color={theme.income} />
+              </Pressable>
             </View>
-          ) : null}
-          <View style={styles.stockRow}>
             <Text
               style={[
-                styles.stockLabel,
+                styles.stockStatus,
                 {
-                  color: item.inStock ? theme.income : theme.expense,
+                  color: (item.quantity || 0) > 0 ? theme.income : theme.expense,
                   fontFamily: "Inter_500Medium",
                 },
               ]}
             >
-              {item.inStock ? t("inStock") : t("outOfStock")}
+              {(item.quantity || 0) > 0 ? `${t("inStock")} (${item.quantity})` : t("outOfStock")}
             </Text>
-            <Switch
-              value={item.inStock}
-              onValueChange={() => handleToggleStock(item)}
-              trackColor={{ false: theme.border, true: theme.income + "66" }}
-              thumbColor={item.inStock ? theme.income : theme.textSecondary}
-              style={styles.stockSwitch}
-            />
           </View>
         </View>
       </Pressable>
-    ),
-    [theme, t, handleLongPress, handleToggleStock]
-  );
+    );
+  },
+  [theme, t, handleLongPress, handleUpdateQuantity, calculateTotalCost]
+);
 
   if (!activeBook) {
     return (
@@ -140,14 +224,14 @@ export default function StoreScreen() {
           style={[
             styles.header,
             {
-              marginTop: insets.top + 40,
+              paddingTop: topPad + 8,
               borderBottomColor: theme.border,
               backgroundColor: theme.background,
             },
           ]}
         >
           <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-            {t("inventory")}
+            {t("store")}
           </Text>
         </View>
         <View style={styles.emptyContent}>
@@ -162,51 +246,87 @@ export default function StoreScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* Header */}
       <View
         style={[
           styles.header,
           {
-            marginTop: 20,
+            marginTop: topPad + 8,
             borderBottomColor: theme.border,
             backgroundColor: theme.background,
           },
         ]}
       >
         <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-          {t("inventory")}
+          Inventory
         </Text>
-        {activeBook.isCloud && (
+        <View style={styles.headerRight}>
           <Pressable
-            testID="share-store-btn"
-            onPress={handleShare}
+            onPress={toggleSearchBar}
             style={({ pressed }) => [
-              styles.shareBtn,
-              {
-                backgroundColor: "#FFFFFF",
-                borderWidth: 1,
-                borderColor: "#E0E0E0",
-                opacity: pressed ? 0.8 : 1,
-              },
+              styles.iconBtn,
+              { opacity: pressed ? 0.6 : 1 },
             ]}
           >
-            <Feather name="share-2" size={18} color="#888888" />
+            <Feather name="search" size={22} color={showSearchBar ? theme.tint : theme.textSecondary} />
           </Pressable>
-        )}
+          <Pressable
+            onPress={openFilterModal}
+            style={({ pressed }) => [
+              styles.iconBtn,
+              { opacity: pressed ? 0.6 : 1 },
+            ]}
+          >
+            <Feather name="filter" size={22} color={filterStock !== "all" ? theme.tint : theme.textSecondary} />
+          </Pressable>
+        </View>
       </View>
 
+      {/* Search Bar */}
+      {showSearchBar && (
+        <View style={[styles.searchContainer, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Feather name="search" size={20} color={theme.textSecondary} />
+          <TextInput
+            style={[styles.searchInput, { color: theme.text }]}
+            placeholder="Search products..."
+            placeholderTextColor={theme.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus={true}
+          />
+          {searchQuery.length > 0 && (
+            <Pressable onPress={() => setSearchQuery("")}>
+              <Feather name="x" size={20} color={theme.textSecondary} />
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {/* Filter Chip */}
+      {filterStock !== "all" && (
+        <Pressable 
+          onPress={() => setFilterStock("all")}
+          style={[styles.filterChip, { backgroundColor: theme.tint + '20', borderColor: theme.tint }]}
+        >
+          <Text style={[styles.filterChipText, { color: theme.tint }]}>
+            {filterStock === "inStock" ? "In Stock" : "Out of Stock"}
+          </Text>
+          <Feather name="x" size={14} color={theme.tint} />
+        </Pressable>
+      )}
+
+      {/* Products List */}
       <FlatList
-        data={products}
-        keyExtractor={(item) => item.id}
-        renderItem={renderProduct}
-        numColumns={2}
-        scrollEnabled={products.length > 0}
-        columnWrapperStyle={styles.columnWrapper}
+  data={filteredProducts}
+  keyExtractor={(item) => `${item.id}-${currencyRefreshKey}`}
+  renderItem={renderProduct}
+        scrollEnabled={filteredProducts.length > 0}
         contentContainerStyle={[
           styles.list,
           {
-            paddingBottom: bottomPad + (Platform.OS === "web" ? 84 : 50) + 20,
+            paddingBottom: bottomPad + 100,
           },
-          !products.length && styles.emptyContainer,
+          !filteredProducts.length && styles.emptyContainer,
         ]}
         ListEmptyComponent={
           <View style={styles.emptyContent}>
@@ -214,7 +334,7 @@ export default function StoreScreen() {
             <Text
               style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}
             >
-              {t("noProducts")}
+              {searchQuery || filterStock !== "all" ? "No matching products" : t("noProducts")}
             </Text>
             <Text
               style={[styles.emptySubtext, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
@@ -225,40 +345,94 @@ export default function StoreScreen() {
         }
       />
 
-      <View style={{ position: "absolute", bottom: bottomPad + 20, left: 20, right: 20 }}>
-  <Pressable
-    testID="add-product-btn"
-    onPress={() => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      router.push("/add-product");
-    }}
-    style={({ pressed }) => ({ 
-      opacity: pressed ? 0.85 : 1,
-      borderRadius: 12,
-      overflow: "hidden",
-    })}
-  >
-    <LinearGradient
-      colors={['#3B82F6', '#06B6D4', '#10B981']}  // Blue -> Cyan -> Green
-  start={{ x: 1, y: 0 }}
-  end={{ x: 0, y: 0 }}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: 14,
-        marginBottom: 80,
-        gap: 8,
-      }}
-    >
-      <Feather name="plus" size={20} color="#FFFFFF" />
-      <Text style={{ color: "#FFFFFF", fontSize: 16, fontFamily: "Inter_700Bold" }}>
-        Add Product
-      </Text>
-    </LinearGradient>
-  </Pressable>
-</View>
+      {/* Add Product Button */}
+      <View style={{ position: "absolute", bottom: bottomPad + 55, left: 20, right: 20 }}>
+        <Pressable
+          testID="add-product-btn"
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.push("/add-product");
+          }}
+          style={({ pressed }) => ({ 
+            opacity: pressed ? 0.85 : 1,
+            borderRadius: 12,
+            overflow: "hidden",
+            backgroundColor: '#3B82F6',
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            paddingVertical: 14,
+            gap: 8,
+          })}
+        >
+          <Feather name="plus" size={20} color="#FFFFFF" />
+          <Text style={styles.addButtonText}>Add Product</Text>
+        </Pressable>
+      </View>
 
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilterModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowFilterModal(false)}>
+          <View style={[styles.filterModalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.filterModalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+              Filter by Stock Status
+            </Text>
+            
+            <Pressable
+              onPress={() => applyFilter("all")}
+              style={[
+                styles.filterOption,
+                { borderColor: theme.border, backgroundColor: filterStock === "all" ? theme.tint + '20' : 'transparent' }
+              ]}
+            >
+              <Text style={[styles.filterOptionText, { color: filterStock === "all" ? theme.tint : theme.text }]}>
+                All Products
+              </Text>
+              {filterStock === "all" && <Feather name="check" size={18} color={theme.tint} />}
+            </Pressable>
+
+            <Pressable
+              onPress={() => applyFilter("inStock")}
+              style={[
+                styles.filterOption,
+                { borderColor: theme.border, backgroundColor: filterStock === "inStock" ? theme.tint + '20' : 'transparent' }
+              ]}
+            >
+              <Text style={[styles.filterOptionText, { color: filterStock === "inStock" ? theme.tint : theme.text }]}>
+                In Stock Only
+              </Text>
+              {filterStock === "inStock" && <Feather name="check" size={18} color={theme.tint} />}
+            </Pressable>
+
+            <Pressable
+              onPress={() => applyFilter("outOfStock")}
+              style={[
+                styles.filterOption,
+                { borderColor: theme.border, backgroundColor: filterStock === "outOfStock" ? theme.tint + '20' : 'transparent' }
+              ]}
+            >
+              <Text style={[styles.filterOptionText, { color: filterStock === "outOfStock" ? theme.tint : theme.text }]}>
+                Out of Stock Only
+              </Text>
+              {filterStock === "outOfStock" && <Feather name="check" size={18} color={theme.tint} />}
+            </Pressable>
+
+            <Pressable
+              onPress={() => setShowFilterModal(false)}
+              style={[styles.filterCloseBtn, { backgroundColor: theme.tint }]}
+            >
+              <Text style={[styles.filterCloseBtnText, { color: "#FFF" }]}>Close</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Delete Modal */}
       <Modal
         visible={showDeleteConfirm}
         transparent
@@ -312,98 +486,139 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingBottom: 12,
+    paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  title: { fontSize: 28 },
-  shareBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  title: { fontSize: 28, fontFamily: "Inter_700Bold" },
+  headerRight: {
+    flexDirection: "row",
+    gap: 16,
+  },
+  iconBtn: {
+    padding: 4,
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: "Inter_400Regular",
+  },
+  list: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  emptyContainer: { flex: 1 },
+  emptyContent: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    gap: 12,
+    paddingTop: 80,
   },
-  list: { 
-  paddingHorizontal: 16, 
-  paddingTop: 12,
-},
-columnWrapper: { 
-  justifyContent: "center",
-  gap: 16,
-},
-productCard: {
-  width: "80%",  // Fixed percentage width
-  borderRadius: 16,
-  borderWidth: 1,
-  overflow: "hidden",
-  marginBottom: 16,
-  height: 320,
-  marginBottom: -40
-},
+  emptyText: { fontSize: 15, textAlign: "center" },
+  emptySubtext: { fontSize: 13, textAlign: "center" },
+  productCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 12,
+    gap: 12,
+  },
   productImage: {
-    width: "100%",
-    height: 140,
+    width: 70,
+    height: 70,
+    borderRadius: 12,
     resizeMode: "cover",
   },
   productImagePlaceholder: {
-    width: "100%",
-    height: 140,
+    width: 70,
+    height: 70,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
   productInfo: {
-    padding: 12,
+    flex: 1,
     gap: 6,
   },
   productName: {
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 20,
-    marginTop: 26
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
   },
   productPrice: {
-    fontSize: 18,
+    fontSize: 16,
   },
-  categoryBadge: {
-    alignSelf: "flex-start",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginTop: 2,
-  },
-  categoryText: {
+  costPrice: {
     fontSize: 12,
   },
-  stockRow: {
+  totalCostCard: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 6,
+    marginTop: 4,
   },
-  stockLabel: {
-    fontSize: 12,
+  totalCostLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
   },
-  stockSwitch: {
-    transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }],
+  totalCostValue: {
+    fontSize: 13,
+    fontFamily: "Inter_700Bold",
   },
-  fab: {
-    position: "absolute",
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  stockControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  quantityControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  quantityBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
+  },
+  quantityText: {
+    fontSize: 16,
+    minWidth: 30,
+    textAlign: "center",
+    fontFamily: "Inter_600SemiBold",
+  },
+  stockStatus: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+  },
+  addButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontFamily: "Inter_700Bold",
   },
   modalOverlay: {
     flex: 1,
@@ -439,5 +654,74 @@ productCard: {
   },
   modalBtnText: {
     fontSize: 15,
+  },
+  customSwitch: {
+    width: 50,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  switchDot: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 6,
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+  },
+  filterModalContent: {
+    width: "85%",
+    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+    gap: 12,
+  },
+  filterModalTitle: {
+    fontSize: 18,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  filterOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  filterOptionText: {
+    fontSize: 15,
+    fontFamily: "Inter_500Medium",
+  },
+  filterCloseBtn: {
+    marginTop: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  filterCloseBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
   },
 });

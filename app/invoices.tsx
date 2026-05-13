@@ -18,7 +18,7 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
-import { formatEGP } from "@/utils/format";
+import {formatAmount, getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
 interface InvoiceData {
   id: string;
   invoiceNumber: string;
@@ -50,7 +50,18 @@ export default function InvoicesScreen() {
   const [loading, setLoading] = useState(true);
   const [deleteModal, setDeleteModal] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<InvoiceData | null>(null);
+const [refreshKey, setRefreshKey] = useState(0);
+const currencyCode = getCurrencyCode();
+const currencySymbol = getCurrencySymbol();
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing invoices screen");
+    setRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
+const formatAmount = (amount: number) => `${currencyCode} ${amount.toLocaleString('en-EG')}`;
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
@@ -174,7 +185,7 @@ export default function InvoicesScreen() {
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View key={refreshKey} style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 16, borderBottomColor: theme.border, backgroundColor: theme.background }]}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Feather name="arrow-left" size={22} color={theme.text} />
@@ -189,9 +200,10 @@ export default function InvoicesScreen() {
       </View>
 
       <FlatList
-        data={invoicesList}
-        keyExtractor={(item) => item.id}
-        renderItem={renderInvoice}
+  key={`invoice-list-${refreshKey}`}
+  data={invoicesList}
+  keyExtractor={(item) => `${item.id}-${refreshKey}`}
+  renderItem={renderInvoice}
         scrollEnabled={invoicesList.length > 0}
         contentContainerStyle={[
           styles.list,

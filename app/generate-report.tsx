@@ -19,7 +19,7 @@ import * as Print from "expo-print";
 import { useApp, Transaction } from "@/context/AppContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
-import { formatEGP } from "@/utils/format";
+import { formatAmount, getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
 import { PAYMENT_MODES, getPaymentModeLabel } from "@/app/add-transaction";
 
 function escapeHtml(str: string): string {
@@ -46,7 +46,18 @@ export default function GenerateReportScreen() {
   const [entryTypeFilter, setEntryTypeFilter] = useState<EntryTypeFilter>("all");
   const [paymentModeFilter, setPaymentModeFilter] = useState<PaymentModeFilter>("all");
   const [generating, setGenerating] = useState(false);
+const [refreshKey, setRefreshKey] = useState(0);
+const currencyCode = getCurrencyCode();
+const currencySymbol = getCurrencySymbol();
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing generate-report screen");
+    setRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
+const formatAmount = (amount: number) => `${currencyCode} ${amount.toLocaleString('en-EG')}`;
   const filtered = useMemo(() => {
     let result = [...transactions];
     if (entryTypeFilter !== "all") {
@@ -72,7 +83,7 @@ export default function GenerateReportScreen() {
   const buildCsvContent = useCallback(() => {
     const bom = "\uFEFF";
     if (reportType === "all_entries") {
-      const header = "Date,Type,Category,Amount (EGP),Payment Mode,Note\n";
+      const header = `Date,Type,Category,Amount (${currencyCode}),Payment Mode,Note\n`;
       const rows = filtered.map((t) =>
         [escapeCsv(t.date), escapeCsv(t.type === "income" ? "Cash In" : "Cash Out"), escapeCsv(t.category), escapeCsv(t.amount.toFixed(2)), escapeCsv(getPaymentModeLabel(t.paymentMode || "cash")), escapeCsv(t.note || "")].join(",")
       ).join("\n");
@@ -85,7 +96,7 @@ export default function GenerateReportScreen() {
         if (t.type === "income") grouped[t.date].income += t.amount;
         else grouped[t.date].expense += t.amount;
       });
-      const dayHeader = "Date,Total In (EGP),Total Out (EGP),Balance (EGP)\n";
+      const dayHeader = `Date,Total In (${currencyCode}),Total Out (${currencyCode}),Balance (${currencyCode})\n`;
       const rows = Object.entries(grouped)
         .sort(([a], [b]) => b.localeCompare(a))
         .map(([date, v]) => [escapeCsv(date), escapeCsv(v.income.toFixed(2)), escapeCsv(v.expense.toFixed(2)), escapeCsv((v.income - v.expense).toFixed(2))].join(","))
@@ -98,7 +109,7 @@ export default function GenerateReportScreen() {
       if (t.type === "income") grouped[t.category].income += t.amount;
       else grouped[t.category].expense += t.amount;
     });
-    const catHeader = "Category,Total In (EGP),Total Out (EGP),Net (EGP)\n";
+    const catHeader = `Category,Total In (${currencyCode}),Total Out (${currencyCode}),Net (${currencyCode})\n`;
     const rows = Object.entries(grouped)
       .sort(([, a], [, b]) => (b.income + b.expense) - (a.income + a.expense))
       .map(([cat, v]) => [escapeCsv(cat), escapeCsv(v.income.toFixed(2)), escapeCsv(v.expense.toFixed(2)), escapeCsv((v.income - v.expense).toFixed(2))].join(","))
@@ -119,7 +130,7 @@ export default function GenerateReportScreen() {
     if (reportType === "all_entries") {
       tableHtml = `
         <table>
-          <thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Amount (EGP)</th><th>Payment Mode</th><th>Note</th></tr></thead>
+          <thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Amount (${currencyCode})</th><th>Payment Mode</th><th>Note</th></tr></thead>
           <tbody>
             ${filtered.map((t) => `
               <tr>
@@ -142,7 +153,7 @@ export default function GenerateReportScreen() {
       });
       tableHtml = `
         <table>
-          <thead><tr><th>Date</th><th>Total In (EGP)</th><th>Total Out (EGP)</th><th>Balance (EGP)</th></tr></thead>
+          <thead><tr><th>Date</th><th>Total In (${currencyCode})</th><th>Total Out (${currencyCode})</th><th>Balance (${currencyCode})</th></tr></thead>
           <tbody>
             ${Object.entries(grouped).sort(([a], [b]) => b.localeCompare(a)).map(([date, v]) => `
               <tr>
@@ -163,7 +174,7 @@ export default function GenerateReportScreen() {
       });
       tableHtml = `
         <table>
-          <thead><tr><th>Category</th><th>Total In (EGP)</th><th>Total Out (EGP)</th><th>Net (EGP)</th></tr></thead>
+          <thead><tr><th>Category</th><th>Total In (${currencyCode})</th><th>Total Out (${currencyCode})</th><th>Net (${currencyCode})</th></tr></thead>
           <tbody>
             ${Object.entries(grouped).sort(([, a], [, b]) => (b.income + b.expense) - (a.income + a.expense)).map(([cat, v]) => `
               <tr>
@@ -204,15 +215,16 @@ export default function GenerateReportScreen() {
           <div class="summary">
             <div class="stat">
               <div class="stat-label">Total In</div>
-              <div class="stat-value income">${filteredTotals.income.toFixed(2)} EGP</div>
+<div class="stat-value income">${filteredTotals.income.toFixed(2)} ${currencyCode}</div>
+
             </div>
             <div class="stat">
               <div class="stat-label">Total Out</div>
-              <div class="stat-value expense">${filteredTotals.expense.toFixed(2)} EGP</div>
+              <div class="stat-value expense">${filteredTotals.expense.toFixed(2)} ${currencyCode}</div>
             </div>
             <div class="stat">
               <div class="stat-label">Net Balance</div>
-              <div class="stat-value">${filteredTotals.balance.toFixed(2)} EGP</div>
+              <div class="stat-value">${filteredTotals.balance.toFixed(2)} ${currencyCode}</div>
             </div>
           </div>
           ${tableHtml}
@@ -301,7 +313,7 @@ export default function GenerateReportScreen() {
   ];
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View key={refreshKey} style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <Pressable onPress={() => router.back()} accessibilityLabel="Back" accessibilityRole="button">
           <Feather name="arrow-left" size={22} color={theme.text} />
@@ -450,19 +462,20 @@ export default function GenerateReportScreen() {
             <View style={styles.statItem}>
               <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("cashIn")}</Text>
               <Text style={[styles.statValue, { color: theme.income, fontFamily: "Inter_600SemiBold" }]}>
-                {formatEGP(filteredTotals.income)}
+                {formatAmount(filteredTotals.income)}
+
               </Text>
             </View>
             <View style={styles.statItem}>
               <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("cashOut")}</Text>
               <Text style={[styles.statValue, { color: theme.expense, fontFamily: "Inter_600SemiBold" }]}>
-                {formatEGP(filteredTotals.expense)}
+                {formatAmount(filteredTotals.expense)}
               </Text>
             </View>
             <View style={styles.statItem}>
               <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>{t("netBalance")}</Text>
               <Text style={[styles.statValue, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
-                {formatEGP(filteredTotals.balance)}
+                {formatAmount(filteredTotals.balance)}
               </Text>
             </View>
           </View>

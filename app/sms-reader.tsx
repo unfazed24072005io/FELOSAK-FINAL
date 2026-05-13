@@ -16,7 +16,7 @@ import * as Haptics from "expo-haptics";
 import { useApp } from "@/context/AppContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
-import { formatEGP } from "@/utils/format";
+import {formatAmount, getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
 
 interface ParsedSMS {
   amount: number;
@@ -100,7 +100,18 @@ export default function SMSReaderScreen() {
   const [parsed, setParsed] = useState<ParsedSMS | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+const [refreshKey, setRefreshKey] = useState(0);
+const currencyCode = getCurrencyCode();
+const currencySymbol = getCurrencySymbol();
 
+useEffect(() => {
+  const unsubscribe = subscribeToCurrencyChanges(() => {
+    console.log("Currency changed, refreshing sms-reader screen");
+    setRefreshKey(prev => prev + 1);
+  });
+  return unsubscribe;
+}, []);
+const formatAmount = (amount: number) => `${currencyCode} ${amount.toLocaleString('en-EG')}`;
   const topPad = Platform.OS === "web" ? 20 : 16;
 
   const handleParse = useCallback(() => {
@@ -144,7 +155,8 @@ export default function SMSReaderScreen() {
 
   return (
     <ScrollView
-      style={[styles.container, { backgroundColor: theme.background }]}
+  key={refreshKey}
+  style={[styles.container, { backgroundColor: theme.background }]}
       contentContainerStyle={[styles.content, { paddingTop: topPad, paddingBottom: insets.bottom + 40 }]}
       keyboardShouldPersistTaps="handled"
     >
