@@ -1,4 +1,6 @@
+// app/auth.tsx
 import React, { useCallback, useState } from "react";
+import { useBookMode } from "@/context/BookModeContext";
 import {
   Alert,
   Platform,
@@ -23,41 +25,79 @@ export default function AuthScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const { login } = useAuth();
-
+  const { login, loginWithBookAccess } = useAuth();
+  const { enterBookMode } = useBookMode();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [bookPassword, setBookPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [loginMode, setLoginMode] = useState<"regular" | "book">("regular");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
-  const handleLogin = useCallback(async () => {
-    setError("");
-    if (!email.trim() || !password.trim()) {
-      setError("Please fill in all fields");
-      return;
-    }
-    setLoading(true);
-    try {
-      await login(email.trim(), password);
+  // Regular login - sees ALL books
+const handleRegularLogin = useCallback(async () => {
+  setError("");
+  if (!email.trim() || !password.trim()) {
+    setError("Please fill in all fields");
+    return;
+  }
+  setLoading(true);
+  try {
+    await login(email.trim(), password);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // Pass a parameter to indicate regular access mode
+    router.replace({
+      pathname: "/(tabs)",
+      params: { accessMode: "regular" }
+    });
+  } catch (e: any) {
+    const msg = e.message || "Something went wrong";
+    const cleanMsg = msg.includes(":") ? msg.split(":").slice(1).join(":").trim() : msg;
+    setError(cleanMsg);
+  } finally {
+    setLoading(false);
+  }
+}, [email, password, login]);
+
+  const handleBookAccessLogin = useCallback(async () => {
+  setError("");
+  if (!email.trim()) {
+    setError("Please enter your email");
+    return;
+  }
+  if (!bookPassword.trim()) {
+    setError("Please enter the book password");
+    return;
+  }
+  
+  setLoading(true);
+  try {
+    const bookAccess = await loginWithBookAccess(email.trim(), bookPassword.trim());
+    
+    if (bookAccess) {
+      // ADD THIS - Store book mode state before navigating
+      await enterBookMode(bookPassword.trim(), bookAccess.id);
+      
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/(tabs)");
-    } catch (e: any) {
-      const msg = e.message || "Something went wrong";
-      const cleanMsg = msg.includes(":") ? msg.split(":").slice(1).join(":").trim() : msg;
-      setError(cleanMsg);
-    } finally {
-      setLoading(false);
     }
-  }, [email, password, login]);
+  } catch (e: any) {
+    const msg = e.message || "Invalid book password or access denied";
+    const cleanMsg = msg.includes(":") ? msg.split(":").slice(1).join(":").trim() : msg;
+    setError(cleanMsg);
+  } finally {
+    setLoading(false);
+  }
+}, [email, bookPassword, loginWithBookAccess, enterBookMode]); // ADD enterBookMode to dependencies
 
   const handleSignUp = () => {
-  console.log("🔵 SIGN UP CLICKED - Navigating to onboarding");
-  setTimeout(() => {
-    router.push("/onboarding");
-  }, 100);
-};
+    console.log("🔵 SIGN UP CLICKED - Navigating to onboarding");
+    setTimeout(() => {
+      router.push("/onboarding");
+    }, 100);
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -77,7 +117,7 @@ export default function AuthScreen() {
         <Text
           style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
         >
-          Sign In
+          {loginMode === "regular" ? "Sign In" : "Book Access"}
         </Text>
         <View style={{ width: 22 }} />
       </View>
@@ -89,13 +129,80 @@ export default function AuthScreen() {
       >
         <View style={styles.iconContainer}>
           <View style={[styles.iconCircle, { backgroundColor: theme.tint + "22" }]}>
-            <Feather name="users" size={40} color={theme.tint} />
+            <Feather name={loginMode === "regular" ? "users" : "lock"} size={40} color={theme.tint} />
           </View>
           <Text style={[styles.subtitle, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Sign in to access your cloud books and collaborate with your team
+            {loginMode === "regular" 
+              ? "Sign in to access your cloud books and collaborate with your team"
+              : "Enter a book password to access a specific book"}
           </Text>
         </View>
 
+        {/* Mode Toggle */}
+<View style={styles.modeToggle}>
+  <Pressable
+    onPress={() => {
+      setLoginMode("regular");
+      setError("");
+      setPassword("");
+      setBookPassword("");
+    }}
+    style={[
+      styles.modeOption,
+      loginMode === "regular" && { backgroundColor: theme.tint + "20", borderColor: theme.tint },
+      { borderColor: theme.border }
+    ]}
+  >
+    <Feather name="users" size={16} color={loginMode === "regular" ? theme.tint : theme.textSecondary} />
+    <Text 
+      style={[
+        styles.modeText, 
+        { 
+          color: loginMode === "regular" ? theme.tint : theme.textSecondary,
+          textAlign: "center",
+          flexShrink: 1,
+        }
+      ]}
+      numberOfLines={2}
+      adjustsFontSizeToFit
+      minimumFontScale={0.8}
+    >
+      Regular Login
+    </Text>
+  </Pressable>
+  <Pressable
+    onPress={() => {
+      setLoginMode("book");
+      setError("");
+      setPassword("");
+      setBookPassword("");
+    }}
+    style={[
+      styles.modeOption,
+      loginMode === "book" && { backgroundColor: theme.tint + "20", borderColor: theme.tint },
+      { borderColor: theme.border }
+    ]}
+  >
+    <Feather name="key" size={16} color={loginMode === "book" ? theme.tint : theme.textSecondary} />
+    <Text 
+      style={[
+        styles.modeText, 
+        { 
+          color: loginMode === "book" ? theme.tint : theme.textSecondary,
+          textAlign: "center",
+          flexShrink: 1,
+        }
+      ]}
+      numberOfLines={2}
+      adjustsFontSizeToFit
+      minimumFontScale={0.8}
+    >
+      Book Password Access
+    </Text>
+  </Pressable>
+</View>
+
+        {/* Email Field (Common for both modes) */}
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
             Email *
@@ -120,27 +227,58 @@ export default function AuthScreen() {
           />
         </View>
 
-        <View style={styles.fieldGroup}>
-          <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
-            Password *
-          </Text>
-          <TextInput
-            style={[
-              styles.input,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                color: theme.text,
-                fontFamily: "Inter_400Regular",
-              },
-            ]}
-            value={password}
-            onChangeText={setPassword}
-            placeholder="••••••••"
-            placeholderTextColor={theme.textSecondary + "88"}
-            secureTextEntry
-          />
-        </View>
+        {/* Regular Login Password Field */}
+        {loginMode === "regular" && (
+          <View style={styles.fieldGroup}>
+            <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+              Password *
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
+                  color: theme.text,
+                  fontFamily: "Inter_400Regular",
+                },
+              ]}
+              value={password}
+              onChangeText={setPassword}
+              placeholder="••••••••"
+              placeholderTextColor={theme.textSecondary + "88"}
+              secureTextEntry
+            />
+          </View>
+        )}
+
+        {/* Book Access Password Field */}
+        {loginMode === "book" && (
+          <View style={styles.fieldGroup}>
+            <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+              Book Password *
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
+                  color: theme.text,
+                  fontFamily: "Inter_400Regular",
+                },
+              ]}
+              value={bookPassword}
+              onChangeText={setBookPassword}
+              placeholder="Enter the book's password (e.g., sursurss)"
+              placeholderTextColor={theme.textSecondary + "88"}
+              autoCapitalize="none"
+            />
+            <Text style={[styles.hintText, { color: theme.textSecondary + "88", fontFamily: "Inter_400Regular" }]}>
+              ⚡ Using your email + book password will give you access to ONLY that specific book
+            </Text>
+          </View>
+        )}
 
         {error ? (
           <View style={[styles.errorBox, { backgroundColor: theme.expense + "22" }]}>
@@ -151,7 +289,7 @@ export default function AuthScreen() {
         ) : null}
 
         <Pressable
-          onPress={handleLogin}
+          onPress={loginMode === "regular" ? handleRegularLogin : handleBookAccessLogin}
           disabled={loading}
           style={({ pressed }) => [
             styles.submitBtn,
@@ -165,19 +303,32 @@ export default function AuthScreen() {
             <ActivityIndicator color="#FFF" size="small" />
           ) : (
             <Text style={[styles.submitText, { fontFamily: "Inter_600SemiBold" }]}>
-              Sign In
+              {loginMode === "regular" ? "Sign In" : "Access Book"}
             </Text>
           )}
         </Pressable>
 
-        <Pressable onPress={handleSignUp} style={styles.toggleBtn}>
-          <Text style={[styles.toggleText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            Don't have an account?{" "}
-            <Text style={{ color: theme.tint, fontFamily: "Inter_600SemiBold" }}>
-              Sign Up
+        {loginMode === "regular" && (
+          <Pressable onPress={handleSignUp} style={styles.toggleBtn}>
+            <Text style={[styles.toggleText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              Don't have an account?{" "}
+              <Text style={{ color: theme.tint, fontFamily: "Inter_600SemiBold" }}>
+                Sign Up
+              </Text>
             </Text>
-          </Text>
-        </Pressable>
+          </Pressable>
+        )}
+
+        {loginMode === "book" && (
+          <Pressable 
+            onPress={() => setLoginMode("regular")} 
+            style={styles.toggleBtn}
+          >
+            <Text style={[styles.toggleText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
+              ← Back to Regular Login
+            </Text>
+          </Pressable>
+        )}
       </KeyboardAwareScrollView>
     </View>
   );
@@ -227,4 +378,31 @@ const styles = StyleSheet.create({
   submitText: { color: "#FFF", fontSize: 16 },
   toggleBtn: { alignItems: "center", paddingVertical: 12 },
   toggleText: { fontSize: 14 },
+  modeToggle: {
+  flexDirection: "row",
+  gap: 8,  // Reduced from 12 to give more space
+  marginVertical: 8,
+},
+modeOption: {
+  flex: 1,
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 6,  // Reduced from 8
+  paddingVertical: 10,
+  paddingHorizontal: 8,  // Added horizontal padding
+  borderRadius: 12,
+  borderWidth: 1,
+  minHeight: 60,  // Added minimum height
+},
+modeText: {
+  fontSize: 12,  // Reduced from 13
+  fontFamily: "Inter_500Medium",
+  flexShrink: 1,  // Added to allow text to shrink
+},
+  hintText: {
+    fontSize: 11,
+    marginTop: 4,
+    paddingLeft: 4,
+  },
 });

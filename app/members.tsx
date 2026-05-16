@@ -1,4 +1,4 @@
-// app/members.tsx
+// app/members.tsx - WITH PERMISSION SELECTOR FOR PASSWORD
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -60,13 +60,24 @@ export default function MembersScreen() {
   const [inviting, setInviting] = useState(false);
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  
+  // Password protection states
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [bookPassword, setBookPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [settingPassword, setSettingPassword] = useState(false);
+  const [passwordProtected, setPasswordProtected] = useState(false);
+  const [showRemovePasswordConfirm, setShowRemovePasswordConfirm] = useState(false);
+  
+  // NEW: Password permission state
+  const [passwordAccessLevel, setPasswordAccessLevel] = useState<"read" | "write">("read");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
   const isOwner = activeBook?.role === "owner";
 
-  // ✅ Load members function - FIXED
+  // Load members function
   const loadMembers = async () => {
     if (!activeBook || !isOwner) {
       setLoading(false);
@@ -79,7 +90,6 @@ export default function MembersScreen() {
       const loadedMembers: Member[] = [];
       snapshot.forEach(doc => {
         const data = doc.data();
-        // Only show members that are active (not pending)
         if (data.status !== 'pending') {
           loadedMembers.push({
             id: doc.id,
@@ -101,75 +111,185 @@ export default function MembersScreen() {
     }
   };
 
-  // Load members on mount
-  useEffect(() => {
-    loadMembers();
-  }, [activeBook, isOwner]);
+  // Check if book has password protection
+  const checkPasswordProtection = async () => {
+    if (!activeBook) return;
+    
+    try {
+      const bookRef = doc(db, 'books', activeBook.id);
+      const bookSnap = await getDoc(bookRef);
+      
+      if (bookSnap.exists()) {
+        const bookData = bookSnap.data();
+        const hasPassword = bookData.accessPassword && bookData.accessPassword.length > 0;
+        setPasswordProtected(hasPassword);
+        // Also load the access level if exists
+        if (bookData.passwordAccessLevel) {
+          setPasswordAccessLevel(bookData.passwordAccessLevel);
+        }
+      }
+    } catch (error) {
+      console.error("Error checking password protection:", error);
+    }
+  };
 
-  const handleCreateAndInvite = async () => {
-  if (!inviteEmail.trim()) {
-    Alert.alert("Error", "Please enter an email address");
-    return;
-  }
-  
-  if (!inviteEmail.includes("@")) {
-    Alert.alert("Error", "Please enter a valid email address");
-    return;
-  }
-
-  setInviting(true);
-  try {
-    const normalizedEmail = inviteEmail.toLowerCase().trim();
+  // Set or update book password with permission level
+  const handleSetPassword = async () => {
+    console.log("🔐 === HANDLE SET PASSWORD CALLED ===");
+    console.log("activeBook:", activeBook);
+    console.log("activeBook.id:", activeBook?.id);
+    console.log("Access Level:", passwordAccessLevel);
     
-    console.log("📧 Creating invitation for:", normalizedEmail);
-    
-    // Check if already invited
-    const existingInviteQuery = query(
-      collection(db, 'pendingInvites'),
-      where('email', '==', normalizedEmail),
-      where('bookId', '==', activeBook!.id)
-    );
-    const existingInvite = await getDocs(existingInviteQuery);
-    
-    if (!existingInvite.empty) {
-      Alert.alert("Info", "An invitation has already been sent to this email");
-      setInviting(false);
+    if (!bookPassword.trim()) {
+      Alert.alert("Error", "Please enter a password");
       return;
     }
     
-    // Create pending invitation
-    await addDoc(collection(db, 'pendingInvites'), {
-      email: normalizedEmail,
-      bookId: activeBook!.id,
-      bookName: activeBook!.name,
-      role: selectedRole,
-      invitedBy: user?.id,
-      invitedByEmail: user?.email,
-      invitedAt: new Date(),
-      status: 'pending',
-    });
+    if (bookPassword.length < 4) {
+      Alert.alert("Error", "Password must be at least 4 characters");
+      return;
+    }
     
-    console.log("✅ Invitation created for book:", activeBook!.name);
+    if (bookPassword !== confirmPassword) {
+      Alert.alert("Error", "Passwords do not match");
+      return;
+    }
     
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert(
-      "Invitation Sent", 
-      `${inviteEmail} has been invited to join "${activeBook!.name}".\n\nThey will see this book when they sign up.`
-    );
-    
-    setInviteEmail("");
-    setInviteName("");
-    setShowInviteModal(false);
-    
-  } catch (error: any) {
-    console.error("Error creating invitation:", error);
-    Alert.alert("Error", error.message || "Failed to send invitation");
-  } finally {
-    setInviting(false);
-  }
-};
+    setSettingPassword(true);
+    try {
+      const bookRef = doc(db, 'books', activeBook!.id);
+      
+      await updateDoc(bookRef, {
+        accessPassword: bookPassword,
+        passwordProtected: true,
+        passwordAccessLevel: passwordAccessLevel,
+        passwordSetAt: new Date(),
+        passwordSetBy: user?.id,
+      });
+      
+      console.log("✅ Password set successfully for book:", activeBook!.id);
+      console.log("✅ Access level:", passwordAccessLevel);
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(
+        "Success", 
+        `Book password has been set!\n\nPassword: ${bookPassword}\nAccess: ${passwordAccessLevel === "write" ? "Read & Write" : "Read Only"}`
+      );
+      
+      setBookPassword("");
+      setConfirmPassword("");
+      setShowPasswordModal(false);
+      setPasswordProtected(true);
+      
+    } catch (error: any) {
+      console.error("❌ Error setting password:", error);
+      Alert.alert("Error", error.message || "Failed to set password");
+    } finally {
+      setSettingPassword(false);
+    }
+  };
 
-  // ✅ Handle Invite Existing User
+  // Remove password protection
+  const handleRemovePassword = async () => {
+    setSettingPassword(true);
+    try {
+      const bookRef = doc(db, 'books', activeBook!.id);
+      
+      await updateDoc(bookRef, {
+        accessPassword: null,
+        passwordProtected: false,
+        passwordAccessLevel: null,
+      });
+      
+      console.log("✅ Password removed for book:", activeBook!.id);
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Success", "Password protection removed.");
+      
+      setShowRemovePasswordConfirm(false);
+      setPasswordProtected(false);
+      setPasswordAccessLevel("read");
+      
+    } catch (error: any) {
+      console.error("❌ Error removing password:", error);
+      Alert.alert("Error", error.message || "Failed to remove password");
+    } finally {
+      setSettingPassword(false);
+    }
+  };
+
+  // Load members and check password on mount
+  useEffect(() => {
+    loadMembers();
+    checkPasswordProtection();
+  }, [activeBook, isOwner]);
+
+  const handleCreateAndInvite = async () => {
+    if (!inviteEmail.trim()) {
+      Alert.alert("Error", "Please enter an email address");
+      return;
+    }
+    
+    if (!inviteEmail.includes("@")) {
+      Alert.alert("Error", "Please enter a valid email address");
+      return;
+    }
+
+    setInviting(true);
+    try {
+      const normalizedEmail = inviteEmail.toLowerCase().trim();
+      
+      console.log("📧 Creating invitation for:", normalizedEmail);
+      
+      const existingInviteQuery = query(
+        collection(db, 'pendingInvites'),
+        where('email', '==', normalizedEmail),
+        where('bookId', '==', activeBook!.id)
+      );
+      const existingInvite = await getDocs(existingInviteQuery);
+      
+      if (!existingInvite.empty) {
+        Alert.alert("Info", "An invitation has already been sent to this email");
+        setInviting(false);
+        return;
+      }
+      
+      await addDoc(collection(db, 'pendingInvites'), {
+        email: normalizedEmail,
+        bookId: activeBook!.id,
+        bookName: activeBook!.name,
+        role: selectedRole,
+        invitedBy: user?.id,
+        invitedByEmail: user?.email,
+        invitedAt: new Date(),
+        status: 'pending',
+      });
+      
+      console.log("✅ Invitation created for book:", activeBook!.name);
+      
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      let message = `${inviteEmail} has been invited to join "${activeBook!.name}".\n\n`;
+      if (passwordProtected) {
+        message += `⚠️ This book is password protected. Share the book password with them for access.\n\nBook Password: (the one you set in Book Settings)`;
+      } else {
+        message += `They will see this book when they sign up.`;
+      }
+      
+      Alert.alert("Invitation Sent", message);
+      
+      setInviteEmail("");
+      setInviteName("");
+      setShowInviteModal(false);
+      
+    } catch (error: any) {
+      console.error("Error creating invitation:", error);
+      Alert.alert("Error", error.message || "Failed to send invitation");
+    } finally {
+      setInviting(false);
+    }
+  };
+
   const handleInviteExisting = async () => {
     if (!inviteEmail.trim()) {
       Alert.alert("Error", "Please enter an email address");
@@ -199,7 +319,6 @@ export default function MembersScreen() {
       const userId = userDoc.id;
       const userName = userDoc.data().displayName;
       
-      // Check if already a member
       const existingQuery = query(
         collection(db, 'bookMembers'),
         where('bookId', '==', activeBook!.id),
@@ -393,14 +512,65 @@ export default function MembersScreen() {
         <Text style={[styles.headerTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
           Members
         </Text>
-        <Pressable onPress={() => setShowInviteModal(true)} style={styles.inviteBtn}>
-          <Feather name="user-plus" size={22} color={theme.tint} />
-        </Pressable>
+        <View style={{ width: 24 }} />
       </View>
 
       <Text style={[styles.bookName, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
         {activeBook.name}
       </Text>
+
+      {/* Book Password Section */}
+      <View style={[styles.passwordSection, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <View style={styles.passwordSectionHeader}>
+          <Feather name="shield" size={20} color={passwordProtected ? "#10B981" : theme.textSecondary} />
+          <Text style={[styles.passwordSectionTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+            Book Password Protection
+          </Text>
+        </View>
+        
+        <Text style={[styles.passwordSectionDesc, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+          {passwordProtected 
+            ? `This book has a password. Members will get ${passwordAccessLevel === "write" ? "Read & Write" : "Read Only"} access.`
+            : "Set a password so members can access this book using their email + this password."}
+        </Text>
+        
+        {!passwordProtected ? (
+          <Pressable
+            onPress={() => setShowPasswordModal(true)}
+            style={[styles.setPasswordBtn, { borderColor: theme.tint }]}
+          >
+            <Feather name="lock" size={16} color={theme.tint} />
+            <Text style={[styles.setPasswordBtnText, { color: theme.tint, fontFamily: "Inter_500Medium" }]}>
+              Set Book Password
+            </Text>
+          </Pressable>
+        ) : (
+          <>
+            {/* Show current access level when password is set */}
+            <View style={styles.currentAccessContainer}>
+              <Text style={[styles.currentAccessLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                Current Access Level:
+              </Text>
+              <View style={[styles.currentAccessBadge, { backgroundColor: passwordAccessLevel === "write" ? "#10B98120" : "#F59E0B20" }]}>
+                <Feather name={passwordAccessLevel === "write" ? "edit-2" : "eye"} size={14} color={passwordAccessLevel === "write" ? "#10B981" : "#F59E0B"} />
+                <Text style={[styles.currentAccessText, { color: passwordAccessLevel === "write" ? "#10B981" : "#F59E0B", fontFamily: "Inter_500Medium" }]}>
+                  {passwordAccessLevel === "write" ? "Read & Write" : "Read Only"}
+                </Text>
+              </View>
+            </View>
+            
+            <Pressable
+              onPress={() => setShowRemovePasswordConfirm(true)}
+              style={[styles.removePasswordBtn, { borderColor: theme.expense }]}
+            >
+              <Feather name="unlock" size={16} color={theme.expense} />
+              <Text style={[styles.removePasswordBtnText, { color: theme.expense, fontFamily: "Inter_500Medium" }]}>
+                Remove Password
+              </Text>
+            </Pressable>
+          </>
+        )}
+      </View>
 
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -408,7 +578,7 @@ export default function MembersScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.membersList, { paddingBottom: bottomPad + 20 }]}>
-          <View style={[styles.memberCard, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 2, borderColor: theme.tint }]}>
+          <View style={[styles.memberCard, { backgroundColor: theme.card, borderColor: theme.tint, borderWidth: 2 }]}>
             <View style={styles.memberAvatar}>
               <Feather name="user" size={20} color={theme.tint} />
             </View>
@@ -439,6 +609,122 @@ export default function MembersScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* Set Password Modal - WITH PERMISSION SELECTOR */}
+      <Modal visible={showPasswordModal} transparent animationType="slide" onRequestClose={() => setShowPasswordModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+                Set Book Password
+              </Text>
+              <Pressable onPress={() => setShowPasswordModal(false)} hitSlop={8}>
+                <Feather name="x" size={24} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            
+            <Text style={[styles.modalSubtitle, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              Set a password for this book. Members can access it using their email + this password.
+            </Text>
+            
+            <TextInput
+              style={[styles.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
+              placeholder="Enter book password"
+              placeholderTextColor={theme.textSecondary}
+              value={bookPassword}
+              onChangeText={setBookPassword}
+              autoCapitalize="none"
+            />
+            
+            <TextInput
+              style={[styles.input, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.text }]}
+              placeholder="Confirm password"
+              placeholderTextColor={theme.textSecondary}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              autoCapitalize="none"
+            />
+            
+            {/* NEW: Permission Selector */}
+            <View style={styles.permissionSection}>
+              <Text style={[styles.permissionLabel, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                Member Access Level
+              </Text>
+              <View style={styles.permissionRow}>
+                <Pressable
+                  onPress={() => setPasswordAccessLevel("read")}
+                  style={[
+                    styles.permissionOption,
+                    passwordAccessLevel === "read" && { backgroundColor: theme.tint + "20", borderColor: theme.tint },
+                    { borderColor: theme.border }
+                  ]}
+                >
+                  <Feather name="eye" size={18} color={passwordAccessLevel === "read" ? theme.tint : theme.textSecondary} />
+                  <Text style={[styles.permissionOptionText, { color: passwordAccessLevel === "read" ? theme.tint : theme.textSecondary }]}>
+                    Read Only
+                  </Text>
+                  <Text style={[styles.permissionOptionDesc, { color: theme.textSecondary }]}>
+                    Can view, cannot edit
+                  </Text>
+                </Pressable>
+                
+                <Pressable
+                  onPress={() => setPasswordAccessLevel("write")}
+                  style={[
+                    styles.permissionOption,
+                    passwordAccessLevel === "write" && { backgroundColor: theme.tint + "20", borderColor: theme.tint },
+                    { borderColor: theme.border }
+                  ]}
+                >
+                  <Feather name="edit-2" size={18} color={passwordAccessLevel === "write" ? theme.tint : theme.textSecondary} />
+                  <Text style={[styles.permissionOptionText, { color: passwordAccessLevel === "write" ? theme.tint : theme.textSecondary }]}>
+                    Read & Write
+                  </Text>
+                  <Text style={[styles.permissionOptionDesc, { color: theme.textSecondary }]}>
+                    Can view, add, edit, delete
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+            
+            <Pressable
+              onPress={handleSetPassword}
+              disabled={settingPassword}
+              style={[styles.setupPasswordBtn, { backgroundColor: theme.tint, opacity: settingPassword ? 0.7 : 1 }]}
+            >
+              {settingPassword ? (
+                <ActivityIndicator color="#FFF" size="small" />
+              ) : (
+                <Text style={[styles.setupPasswordBtnText, { color: "#FFF", fontFamily: "Inter_600SemiBold" }]}>
+                  Set Password
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Remove Password Confirmation Modal */}
+      <Modal visible={showRemovePasswordConfirm} transparent animationType="fade" onRequestClose={() => setShowRemovePasswordConfirm(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+              Remove Password Protection
+            </Text>
+            <Text style={[styles.modalMessage, { color: theme.textSecondary }]}>
+              Are you sure you want to remove the password? Members will no longer be able to access this book with a password.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setShowRemovePasswordConfirm(false)} style={[styles.modalBtn, { backgroundColor: theme.surface }]}>
+                <Text style={[styles.modalBtnText, { color: theme.text }]}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={handleRemovePassword} style={[styles.modalBtn, { backgroundColor: theme.expense }]}>
+                <Text style={[styles.modalBtnText, { color: "#FFF" }]}>Remove</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Invite Modal */}
       <Modal visible={showInviteModal} transparent animationType="slide" onRequestClose={() => setShowInviteModal(false)}>
@@ -490,6 +776,15 @@ export default function MembersScreen() {
                 </Text>
               </Pressable>
             </View>
+            
+            {passwordProtected && (
+              <View style={[styles.passwordWarning, { backgroundColor: "#F59E0B20", borderColor: "#F59E0B" }]}>
+                <Feather name="alert-triangle" size={14} color="#F59E0B" />
+                <Text style={[styles.passwordWarningText, { color: "#F59E0B", fontFamily: "Inter_400Regular" }]}>
+                  This book is password protected. Share the book password with invited members.
+                </Text>
+              </View>
+            )}
             
             <Pressable
               onPress={handleCreateAndInvite}
@@ -600,6 +895,10 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   modalTitle: { fontSize: 20 },
   modalSubtitle: { fontSize: 14, marginTop: -8 },
+  modalMessage: { fontSize: 14, lineHeight: 20 },
+  modalActions: { flexDirection: "row", gap: 12 },
+  modalBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
+  modalBtnText: { fontSize: 15 },
   input: {
     borderWidth: 1,
     borderRadius: 12,
@@ -629,4 +928,124 @@ const styles = StyleSheet.create({
   dividerText: { fontSize: 12, marginHorizontal: 12 },
   backButton: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   backButtonText: { fontSize: 14 },
+  // Password section styles
+  passwordSection: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  passwordSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  passwordSectionTitle: {
+    fontSize: 16,
+  },
+  passwordSectionDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  setPasswordBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  setPasswordBtnText: {
+    fontSize: 14,
+  },
+  removePasswordBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  removePasswordBtnText: {
+    fontSize: 14,
+  },
+  setupPasswordBtn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  setupPasswordBtnText: {
+    fontSize: 16,
+  },
+  passwordWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  passwordWarningText: {
+    fontSize: 12,
+    flex: 1,
+  },
+  // NEW: Permission selector styles
+  permissionSection: {
+    marginTop: 8,
+    gap: 12,
+  },
+  permissionLabel: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  permissionRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  permissionOption: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    gap: 6,
+  },
+  permissionOptionText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
+  permissionOptionDesc: {
+    fontSize: 10,
+    textAlign: "center",
+    fontFamily: "Inter_400Regular",
+  },
+  currentAccessContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.05)",
+  },
+  currentAccessLabel: {
+    fontSize: 13,
+  },
+  currentAccessBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  currentAccessText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+  },
 });

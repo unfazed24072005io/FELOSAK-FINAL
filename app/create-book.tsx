@@ -1,4 +1,4 @@
-// app/create-book.tsx (FIXED VERSION)
+// app/create-book.tsx (WITH PASSWORD PROTECTION)
 
 import React, { useCallback, useState } from "react";
 import {
@@ -11,6 +11,7 @@ import {
   useColorScheme,
   ActivityIndicator,
   Alert,
+  Switch,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -39,16 +40,22 @@ export default function CreateBookScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  const { createBook, refreshBooks, isLoadingBooks } = useApp(); // Add refreshBooks and isLoadingBooks
+  const { createBook, refreshBooks, isLoadingBooks } = useApp();
   const { user } = useAuth();
   const { t } = useLanguage();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [isCloud, setIsCloud] = useState(false); // false = Personal, true = Business
+  const [isCloud, setIsCloud] = useState(false);
   const [selectedIcon, setSelectedIcon] = useState(AVAILABLE_ICONS[0]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  
+  // NEW: Password protection states
+  const [enablePassword, setEnablePassword] = useState(false);
+  const [bookPassword, setBookPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [defaultAccess, setDefaultAccess] = useState<"read" | "write">("read");
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
 
@@ -57,6 +64,22 @@ export default function CreateBookScreen() {
     if (!name.trim()) {
       setError("Book name is required");
       return;
+    }
+    
+    // Password validation
+    if (enablePassword) {
+      if (!bookPassword.trim()) {
+        setError("Please enter a password for this book");
+        return;
+      }
+      if (bookPassword.length < 4) {
+        setError("Password must be at least 4 characters");
+        return;
+      }
+      if (bookPassword !== confirmPassword) {
+        setError("Passwords do not match");
+        return;
+      }
     }
     
     // Check for business book without user
@@ -82,26 +105,53 @@ export default function CreateBookScreen() {
     setError("");
     
     try {
-      console.log("Creating book:", { name, description, isCloud, icon: selectedIcon.feather });
+      console.log("Creating book:", { 
+        name, 
+        description, 
+        isCloud, 
+        icon: selectedIcon.feather,
+        passwordProtected: enablePassword,
+        defaultAccess 
+      });
       
-      // Create the book - this will automatically set it as active book in AppContext
-      await createBook(name.trim(), description.trim(), isCloud);
+      // Create the book with password if enabled
+      await createBook(
+        name.trim(), 
+        description.trim(), 
+        isCloud, 
+        selectedIcon.feather,
+        enablePassword ? bookPassword : undefined,
+        defaultAccess
+      );
       
       // Provide haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
-      // Refresh books list to ensure UI is up to date
-      if (refreshBooks) {
-        await refreshBooks();
+      // Show password info if enabled
+      if (enablePassword) {
+        Alert.alert(
+          "Book Created",
+          `Your book "${name}" has been created!\n\nPassword: ${bookPassword}\n\nShare this password with members to give them access. They can log in using their email + this password.`,
+          [
+            { 
+              text: "OK", 
+              onPress: () => {
+                if (refreshBooks) refreshBooks();
+                setTimeout(() => {
+                  router.dismissAll();
+                  router.replace("/(tabs)");
+                }, 100);
+              }
+            }
+          ]
+        );
+      } else {
+        if (refreshBooks) await refreshBooks();
+        setTimeout(() => {
+          router.dismissAll();
+          router.replace("/(tabs)");
+        }, 100);
       }
-      
-      // Small delay to ensure state updates are complete
-      setTimeout(() => {
-        // Dismiss all modals and navigate to tabs with a clean stack
-        router.dismissAll();
-        // Navigate to tabs (the active book will be shown automatically)
-        router.replace("/(tabs)");
-      }, 100);
       
     } catch (e: any) {
       console.error("Error creating book:", e);
@@ -109,14 +159,10 @@ export default function CreateBookScreen() {
     } finally {
       setLoading(false);
     }
-  }, [name, description, isCloud, user, createBook, selectedIcon, refreshBooks]);
+  }, [name, description, isCloud, user, createBook, selectedIcon, refreshBooks, enablePassword, bookPassword, confirmPassword, defaultAccess]);
 
-  // Handle back button properly
   const handleBack = useCallback(() => {
-    // If loading, don't allow back navigation to prevent race conditions
     if (loading) return;
-    
-    // Simple back navigation
     router.back();
   }, [loading]);
 
@@ -210,7 +256,6 @@ export default function CreateBookScreen() {
             Book Type
           </Text>
           
-          {/* Type Selector Buttons */}
           <View style={styles.typeSelectorRow}>
             <Pressable
               onPress={() => {
@@ -279,6 +324,128 @@ export default function CreateBookScreen() {
           </View>
         </View>
 
+        {/* NEW: Password Protection Section */}
+        <View style={styles.fieldGroup}>
+          <View style={styles.passwordHeader}>
+            <View style={styles.passwordHeaderLeft}>
+              <Feather name="shield" size={18} color={enablePassword ? theme.tint : theme.textSecondary} />
+              <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                Password Protection
+              </Text>
+            </View>
+            <Switch
+              value={enablePassword}
+              onValueChange={(value) => {
+                setEnablePassword(value);
+                if (!value) {
+                  setBookPassword("");
+                  setConfirmPassword("");
+                }
+              }}
+              trackColor={{ false: theme.border, true: theme.tint + "80" }}
+              thumbColor={enablePassword ? theme.tint : theme.textSecondary}
+              disabled={loading}
+            />
+          </View>
+          
+          <Text style={[styles.passwordHint, { color: theme.textSecondary + "99", fontFamily: "Inter_400Regular" }]}>
+            {enablePassword 
+              ? "Members can access this book using their email + this password" 
+              : "Enable password protection to restrict access to this book"}
+          </Text>
+        </View>
+
+        {/* Password Fields (only shown if enabled) */}
+        {enablePassword && (
+          <>
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                Book Password *
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: theme.border,
+                    color: theme.text,
+                    fontFamily: "Inter_400Regular",
+                  },
+                ]}
+                value={bookPassword}
+                onChangeText={setBookPassword}
+                placeholder="Enter a password (min 4 characters)"
+                placeholderTextColor={theme.textSecondary + "88"}
+                secureTextEntry
+                autoCapitalize="none"
+                editable={!loading}
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                Confirm Password *
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: theme.border,
+                    color: theme.text,
+                    fontFamily: "Inter_400Regular",
+                  },
+                ]}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Confirm password"
+                placeholderTextColor={theme.textSecondary + "88"}
+                secureTextEntry
+                autoCapitalize="none"
+                editable={!loading}
+              />
+            </View>
+
+            {/* Default Access Level for Members */}
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                Default Member Access
+              </Text>
+              <View style={styles.accessRow}>
+                <Pressable
+                  onPress={() => setDefaultAccess("read")}
+                  style={[
+                    styles.accessOption,
+                    defaultAccess === "read" && { backgroundColor: theme.tint + "20", borderColor: theme.tint },
+                    { borderColor: theme.border }
+                  ]}
+                >
+                  <Feather name="eye" size={16} color={defaultAccess === "read" ? theme.tint : theme.textSecondary} />
+                  <Text style={[styles.accessText, { color: defaultAccess === "read" ? theme.tint : theme.textSecondary }]}>
+                    Read Only
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setDefaultAccess("write")}
+                  style={[
+                    styles.accessOption,
+                    defaultAccess === "write" && { backgroundColor: theme.tint + "20", borderColor: theme.tint },
+                    { borderColor: theme.border }
+                  ]}
+                >
+                  <Feather name="edit-2" size={16} color={defaultAccess === "write" ? theme.tint : theme.textSecondary} />
+                  <Text style={[styles.accessText, { color: defaultAccess === "write" ? theme.tint : theme.textSecondary }]}>
+                    Read & Write
+                  </Text>
+                </Pressable>
+              </View>
+              <Text style={[styles.accessHint, { color: theme.textSecondary + "99", fontFamily: "Inter_400Regular" }]}>
+                This is the default access level for members who use the book password
+              </Text>
+            </View>
+          </>
+        )}
+
         {/* Choose Icon Section - 4x2 Grid */}
         <View style={styles.fieldGroup}>
           <Text style={[styles.label, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
@@ -319,6 +486,16 @@ export default function CreateBookScreen() {
             <Feather name="cloud" size={16} color={theme.tint} />
             <Text style={[styles.infoText, { color: theme.tint, flex: 1 }]}>
               Business books are synced to the cloud and can be accessed from any device.
+            </Text>
+          </View>
+        )}
+
+        {/* Password Info Box */}
+        {enablePassword && (
+          <View style={[styles.infoBox, { backgroundColor: "#F59E0B20" }]}>
+            <Feather name="key" size={16} color="#F59E0B" />
+            <Text style={[styles.infoText, { color: "#F59E0B", flex: 1 }]}>
+              Members can log in with their email + this book password. They will only see this book.
             </Text>
           </View>
         )}
@@ -431,4 +608,41 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   createText: { color: "#FFF", fontSize: 16 },
+  // NEW STYLES
+  passwordHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  passwordHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  passwordHint: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  accessRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  accessOption: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  accessText: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+  },
+  accessHint: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
 });

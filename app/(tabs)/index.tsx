@@ -483,13 +483,24 @@ function IconPickerModal({ visible, onClose, onSelectIcon, currentIcon, theme, i
 
 // ==================== TX ITEM COMPONENT ====================
 // ==================== TX ITEM COMPONENT ====================
-function TxItem({ tx, theme, onEdit, onDelete }: { tx: Transaction; theme: typeof Colors.dark; onEdit: (tx: Transaction) => void; onDelete: (tx: Transaction) => void }) {
+function TxItem({ tx, theme, onEdit, onDelete, canEdit }: { 
+  tx: Transaction; 
+  theme: typeof Colors.dark; 
+  onEdit: (tx: Transaction) => void; 
+  onDelete: (tx: Transaction) => void;
+  canEdit: boolean;
+}) {
   if (!tx || !tx.id) return null;
   const isIncome = tx.type === "income";
   const modeLabel = tx.paymentMode && tx.paymentMode !== "cash" ? getPaymentModeLabel(tx.paymentMode) : null;
   
   return (
-    <Pressable onPress={() => onEdit(tx)} onLongPress={() => onDelete(tx)} style={({ pressed }) => [styles.txItem, { backgroundColor: pressed ? theme.surface : "transparent" }]}>
+    <Pressable 
+      onPress={() => canEdit && onEdit(tx)} 
+      onLongPress={() => canEdit && onDelete(tx)} 
+      disabled={!canEdit}
+      style={({ pressed }) => [styles.txItem, { backgroundColor: pressed && canEdit ? theme.surface : "transparent", opacity: !canEdit ? 0.7 : 1 }]}
+    >
       <View style={[styles.txIcon, { backgroundColor: isIncome ? theme.income + '15' : theme.expense + '15' }]}>
         <Feather name={isIncome ? "trending-up" : "trending-down"} size={20} color={isIncome ? theme.income : theme.expense} />
       </View>
@@ -518,9 +529,14 @@ function BookDashboard() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
-  // ✅ Make sure transactions is included here
   const { activeBook, setActiveBook, transactions, deleteTransaction } = useApp();
+  const { currentBookAccess, isBookRestricted } = useAuth(); // ADD THIS
   const { t } = useLanguage();
+  
+  // Determine if user can edit
+  const canEdit = !isBookRestricted || currentBookAccess?.accessLevel === "write";
+  
+  // Rest of your code...
 
   const [filter, setFilter] = useState<DashFilter>("all");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -686,19 +702,23 @@ const generatePDF = useCallback(async () => {
       </Pressable>
       <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold", flex: 1, textAlign: "center" }]} numberOfLines={1}>{activeBook.name || "Book"}</Text>
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        {/* Members Button */}
-        <Pressable onPress={() => router.push("/members")} style={({ pressed }) => [styles.addBtn, { backgroundColor: '#8B5CF6', opacity: pressed ? 0.8 : 1 }]}>
-          <Feather name="users" size={18} color="#FFF" />
-        </Pressable>
-        {/* PDF Download Button */}
-        <Pressable onPress={generatePDF} style={({ pressed }) => [styles.addBtn, { backgroundColor: '#EF4444', opacity: pressed ? 0.8 : 1 }]}>
-          <Feather name="download" size={18} color="#FFF" />
-        </Pressable>
-        {/* Add Transaction Button */}
-        <Pressable onPress={() => router.push("/add-transaction")} style={({ pressed }) => [styles.addBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 }]}>
-          <Feather name="plus" size={18} color="#FFF" />
-        </Pressable>
-      </View>
+  {/* Members Button - always visible */}
+  <Pressable onPress={() => router.push("/members")} style={({ pressed }) => [styles.addBtn, { backgroundColor: '#8B5CF6', opacity: pressed ? 0.8 : 1 }]}>
+    <Feather name="users" size={18} color="#FFF" />
+  </Pressable>
+  
+  {/* PDF Download Button - always visible */}
+  <Pressable onPress={generatePDF} style={({ pressed }) => [styles.addBtn, { backgroundColor: '#EF4444', opacity: pressed ? 0.8 : 1 }]}>
+    <Feather name="download" size={18} color="#FFF" />
+  </Pressable>
+  
+  {/* Add Transaction Button - ONLY show if canEdit */}
+  {canEdit && (
+    <Pressable onPress={() => router.push("/add-transaction")} style={({ pressed }) => [styles.addBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 }]}>
+      <Feather name="plus" size={18} color="#FFF" />
+    </Pressable>
+  )}
+</View>
     </View>
 
     <View style={[styles.filterRow, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
@@ -712,21 +732,32 @@ const generatePDF = useCallback(async () => {
     </View>
 
     <FlatList
-      data={filtered}
-      keyExtractor={(item) => item?.id || Math.random().toString()}
-renderItem={({ item }) => <TxItem key={`${item.id}-${currencyRefreshKey}`} tx={item} theme={theme} onEdit={handleEdit} onDelete={handleDelete} />}
-      contentContainerStyle={[styles.list, { paddingBottom: bottomPad + 100 }, (!filtered || filtered.length === 0) && styles.emptyContainer]}
-      ListEmptyComponent={
-        <View style={styles.emptyContent}>
-          <Feather name="inbox" size={44} color={theme.textSecondary} />
-          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No transactions found</Text>
-          <Pressable onPress={() => router.push("/add-transaction")} style={({ pressed }) => [styles.emptyBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 }]}>
-            <Text style={[styles.emptyBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>Add Transaction</Text>
-          </Pressable>
-        </View>
-      }
-      ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
+  data={filtered}
+  keyExtractor={(item) => item?.id || Math.random().toString()}
+  renderItem={({ item }) => (
+    <TxItem 
+      key={`${item.id}-${currencyRefreshKey}`} 
+      tx={item} 
+      theme={theme} 
+      onEdit={handleEdit} 
+      onDelete={handleDelete}
+      canEdit={canEdit}  // PASS canEdit HERE
     />
+  )}
+  contentContainerStyle={[styles.list, { paddingBottom: bottomPad + 100 }, (!filtered || filtered.length === 0) && styles.emptyContainer]}
+  ListEmptyComponent={
+  <View style={styles.emptyContent}>
+    <Feather name="inbox" size={44} color={theme.textSecondary} />
+    <Text style={[styles.emptyText, { color: theme.textSecondary }]}>No transactions found</Text>
+    {canEdit && (
+      <Pressable onPress={() => router.push("/add-transaction")} style={({ pressed }) => [styles.emptyBtn, { backgroundColor: theme.tint, opacity: pressed ? 0.8 : 1 }]}>
+        <Text style={[styles.emptyBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>Add Transaction</Text>
+      </Pressable>
+    )}
+  </View>
+}
+  ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: theme.border }]} />}
+/>
 
     <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => setShowDeleteModal(false)}>
       <View style={styles.modalOverlay}>
@@ -794,8 +825,8 @@ function BooksListView() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme !== "light";
   const theme = Colors.light;
-const { books, setActiveBook, deleteBook, updateBook, refreshBooks, activeBook } = useApp();
-  const { user, logout } = useAuth();
+  const { books, setActiveBook, deleteBook, updateBook, refreshBooks, activeBook } = useApp();
+  const { user, logout, currentBookAccess, isBookRestricted, clearBookAccess } = useAuth();
   const { t } = useLanguage();
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -808,36 +839,37 @@ const { books, setActiveBook, deleteBook, updateBook, refreshBooks, activeBook }
   const [profilePhoto, setProfilePhoto] = useState("");
   const [isLoadingName, setIsLoadingName] = useState(true);
   const [loading, setLoading] = useState(false);
-useFocusEffect(
+  
+  useFocusEffect(
     useCallback(() => {
       loadCurrency();
     }, [])
   );
-const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+  
+  const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
 
-useEffect(() => {
-  const unsubscribe = subscribeToCurrencyChanges(() => {
-    console.log("Currency changed, refreshing books list");
-    setCurrencyRefreshKey(prev => prev + 1);
-  });
-  return unsubscribe;
-}, []);
-// Add this state
-const [initialLoadDone, setInitialLoadDone] = useState(false);
+  useEffect(() => {
+    const unsubscribe = subscribeToCurrencyChanges(() => {
+      console.log("Currency changed, refreshing books list");
+      setCurrencyRefreshKey(prev => prev + 1);
+    });
+    return unsubscribe;
+  }, []);
+  
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
-// Add this useEffect to refresh once after initial load
-useEffect(() => {
-  // If no books found after 2 seconds, force a refresh
-  if (!initialLoadDone && books.length === 0 && user) {
-    const timer = setTimeout(async () => {
-      console.log("🔄 No books found, forcing refresh...");
-      await refreshBooks();
-      setInitialLoadDone(true);
-    }, 2000);
-    
-    return () => clearTimeout(timer);
-  }
-}, [books.length, user, initialLoadDone, refreshBooks]);
+  useEffect(() => {
+    if (!initialLoadDone && books.length === 0 && user) {
+      const timer = setTimeout(async () => {
+        console.log("🔄 No books found, forcing refresh...");
+        await refreshBooks();
+        setInitialLoadDone(true);
+      }, 2000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [books.length, user, initialLoadDone, refreshBooks]);
+  
   // Load profile name and photo
   useEffect(() => {
     const loadProfileData = async () => {
@@ -1002,10 +1034,20 @@ useEffect(() => {
   const topPad = 40;
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
   
+  // ========== NEW: Filter books based on access mode ==========
+  const visibleBooks = useMemo(() => {
+    if (isBookRestricted && currentBookAccess) {
+      // In book-restricted mode: Show ONLY the book they have access to
+      return books.filter(book => book.id === currentBookAccess.bookId);
+    }
+    // Regular mode: Show all books
+    return books;
+  }, [books, isBookRestricted, currentBookAccess]);
+  
   const sortedBooks = useMemo(() => {
     if (isLoadingTransactions) return [];
     
-    const sorted = [...books];
+    const sorted = [...visibleBooks];
     const booksWithBalance = sorted.map(book => ({
       ...book,
       balance: getBookBalance(book.id)
@@ -1019,7 +1061,7 @@ useEffect(() => {
       default: booksWithBalance.sort((a, b) => ((b as any).updatedAt || b.createdAt || 0) - ((a as any).updatedAt || a.createdAt || 0)); break;
     }
     return booksWithBalance;
-  }, [books, sortBy, getBookBalance, isLoadingTransactions]);
+  }, [visibleBooks, sortBy, getBookBalance, isLoadingTransactions]);
   
   const handleDeleteBook = useCallback((book: CashBook) => {
     if (book.role !== "owner") { setShowCannotDeleteModal(true); return; }
@@ -1035,13 +1077,11 @@ useEffect(() => {
   
   const handleLogout = useCallback(async () => {
     setProfileModalVisible(false);
-    // REMOVED AsyncStorage.clear() - data persists after logout
     await logout();
     router.dismissAll();
     router.replace("/auth");
   }, [logout]);
 
-  // Refresh profile data after saving
   const refreshProfileData = useCallback(async () => {
     if (!user) return;
     try {
@@ -1079,6 +1119,99 @@ useEffect(() => {
     return path;
   };
 
+  // ========== RESTRICTED MODE VIEW ==========
+  if (isBookRestricted && currentBookAccess) {
+    return (
+      <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+        {/* Restricted Mode Banner */}
+        <View style={[styles.restrictedBanner, { backgroundColor: '#3B82F6' }]}>
+          <Feather name="lock" size={20} color="#FFF" />
+          <Text style={styles.restrictedBannerText}>
+            Book Access Mode: {currentBookAccess.bookName}
+          </Text>
+          <Pressable onPress={async () => {
+            await clearBookAccess();
+            router.replace("/auth");
+          }} style={styles.restrictedExitBtn}>
+            <Text style={styles.restrictedExitText}>Exit</Text>
+          </Pressable>
+        </View>
+        
+        <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: bottomPad + 100 }]} showsVerticalScrollIndicator={false}>
+          {/* Show ONLY the accessible book */}
+          <View style={styles.restrictedBookContainer}>
+            <View style={styles.restrictedBookHeader}>
+              <Feather name="book-open" size={24} color="#3B82F6" />
+              <Text style={styles.restrictedBookTitle}>{currentBookAccess.bookName}</Text>
+              <View style={[styles.accessBadge, { 
+                backgroundColor: currentBookAccess.accessLevel === "write" ? '#10B98120' : '#F59E0B20' 
+              }]}>
+                <Feather name={currentBookAccess.accessLevel === "write" ? "edit-2" : "eye"} size={12} color={currentBookAccess.accessLevel === "write" ? "#10B981" : "#F59E0B"} />
+                <Text style={[styles.accessBadgeText, { 
+                  color: currentBookAccess.accessLevel === "write" ? "#10B981" : "#F59E0B" 
+                }]}>
+                  {currentBookAccess.accessLevel === "write" ? "Read & Write" : "Read Only"}
+                </Text>
+              </View>
+            </View>
+            
+            {/* Show the single book card */}
+            {sortedBooks.map((book) => (
+              <View key={`${book.id}-${currencyRefreshKey}`} style={styles.bookCardWrapper}>
+                <View style={styles.bookCardHeader}>
+                  <View style={styles.bookHeaderLeft}>
+                    <View style={styles.bookIconSmall}>
+                      <Feather name={(book.icon as any) || "book"} size={18} color="#3B82F6" />
+                    </View>
+                    <Text style={styles.bookNameHeader} numberOfLines={1}>{book.name}</Text>
+                  </View>
+                </View>
+                
+                <View style={styles.bookCardBody}>
+                  <View style={styles.balanceSection}>
+                    <Text style={styles.balanceLabelSmall}>Balance</Text>
+                    <Text style={styles.balanceAmountLarge}>
+                      {getCurrencyCode()} {(book.balance || 0).toLocaleString('en-EG')}
+                    </Text>
+                  </View>
+                  <Pressable 
+                    onPress={() => handleOpenBook(book)} 
+                    style={styles.arrowButton}
+                  >
+                    <Feather name="arrow-right" size={24} color="#3B82F6" />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+          
+          {/* Info about access level */}
+          <View style={[styles.accessInfoCard, { backgroundColor: '#F3F4F6' }]}>
+            <Feather name="info" size={16} color="#6B7280" />
+            <Text style={styles.accessInfoText}>
+              You are viewing this book via password access. 
+              {currentBookAccess.accessLevel === "write" 
+                ? " You can add and edit transactions." 
+                : " You can only view transactions."}
+            </Text>
+          </View>
+        </ScrollView>
+        
+        <Pressable 
+          onPress={async () => {
+            await clearBookAccess();
+            router.replace("/auth");
+          }} 
+          style={[styles.exitBookModeBtn, { backgroundColor: '#EF4444' }]}
+        >
+          <Feather name="log-out" size={20} color="#FFF" />
+          <Text style={styles.exitBookModeText}>Exit Book Mode</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ========== REGULAR MODE VIEW (Original) ==========
   return (
     <View style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
       <ProfileModal 
@@ -1111,12 +1244,12 @@ useEffect(() => {
         </View>
 
         <View style={styles.totalBalanceCard}>
-  <LinearGradient colors={['#3B82F6', '#2563EB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceCardGradient} />
-  <View style={styles.balanceCardContent}>
-    <Text style={styles.balanceLabel}>Total Balance</Text>
-    <Text style={styles.balanceAmount}>{getCurrencyCode()} {(allBooksTotals.totalBalance || 0).toLocaleString('en-EG')}</Text>
-    
-    <View style={styles.chartWrapper}>
+          <LinearGradient colors={['#3B82F6', '#2563EB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceCardGradient} />
+          <View style={styles.balanceCardContent}>
+            <Text style={styles.balanceLabel}>Total Balance</Text>
+            <Text style={styles.balanceAmount}>{getCurrencyCode()} {(allBooksTotals.totalBalance || 0).toLocaleString('en-EG')}</Text>
+            
+            <View style={styles.chartWrapper}>
               <Svg height={chartHeight} width="100%" viewBox={`0 0 ${chartWidth} ${chartHeight}`}>
                 <Defs>
                   <SvgLinearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -1146,7 +1279,7 @@ useEffect(() => {
 
         <Text style={[styles.myBooksTitle, { color: "#000000" }]}>{t("myBooks")}</Text>
 
-        {books.length === 0 ? (
+        {visibleBooks.length === 0 ? (
           <View style={[styles.emptyBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Feather name="book-open" size={32} color={theme.textSecondary} />
             <Text style={[styles.emptyText, { color: theme.textSecondary }]}>{t("noBooksYet")}{"\n"}{t("createBook")}</Text>
@@ -1154,7 +1287,7 @@ useEffect(() => {
         ) : (
           <View style={styles.booksGrid}>
             {sortedBooks.map((book) => (
-  <View key={`${book.id}-${currencyRefreshKey}`} style={styles.bookCardWrapper}>
+              <View key={`${book.id}-${currencyRefreshKey}`} style={styles.bookCardWrapper}>
                 <View style={styles.bookCardHeader}>
                   <View style={styles.bookHeaderLeft}>
                     <Pressable onPress={() => handleIconChange(book.id, AVAILABLE_ICONS[(AVAILABLE_ICONS.indexOf(book.icon || "book") + 1) % AVAILABLE_ICONS.length])} style={styles.bookIconSmall}>
@@ -1195,10 +1328,12 @@ useEffect(() => {
         )}
       </ScrollView>
       
-      <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/create-book"); }} style={({ pressed }) => [styles.createBookBtnFixed, { opacity: pressed ? 0.85 : 1 }]}>
-        <Feather name="plus" size={20} color="#FFFFFF" />
-        <Text style={styles.createBookBtnText}>Create New Business</Text>
-      </Pressable>
+      {(!isBookRestricted || currentBookAccess?.accessLevel === "write") && (
+  <Pressable onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/create-book"); }} style={({ pressed }) => [styles.createBookBtnFixed, { opacity: pressed ? 0.85 : 1 }]}>
+    <Feather name="plus" size={20} color="#FFFFFF" />
+    <Text style={styles.createBookBtnText}>Create New Business</Text>
+  </Pressable>
+)}
       
       <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={handleCancelDelete}>
         <View style={styles.modalOverlay}><View style={[styles.modalContent, { backgroundColor: theme.card }]}>
@@ -1380,5 +1515,100 @@ headerAvatar: {
   height: 36,
   borderRadius: 18,
   resizeMode: "cover",
+},
+// Add to your styles object at the bottom:
+
+restrictedBanner: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingHorizontal: 20,
+  paddingVertical: 12,
+  marginTop: 40,
+},
+restrictedBannerText: {
+  color: '#FFF',
+  fontSize: 14,
+  fontFamily: "Inter_600SemiBold",
+  flex: 1,
+  marginLeft: 12,
+},
+restrictedExitBtn: {
+  backgroundColor: 'rgba(255,255,255,0.2)',
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 8,
+},
+restrictedExitText: {
+  color: '#FFF',
+  fontSize: 12,
+  fontFamily: "Inter_500Medium",
+},
+restrictedBookContainer: {
+  padding: 20,
+},
+restrictedBookHeader: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 12,
+  marginBottom: 20,
+  padding: 16,
+  backgroundColor: '#EFF6FF',
+  borderRadius: 16,
+},
+restrictedBookTitle: {
+  fontSize: 18,
+  fontFamily: "Inter_700Bold",
+  color: '#1F2937',
+  flex: 1,
+},
+accessBadge: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 4,
+  paddingHorizontal: 10,
+  paddingVertical: 5,
+  borderRadius: 20,
+},
+accessBadgeText: {
+  fontSize: 11,
+  fontFamily: "Inter_500Medium",
+},
+accessInfoCard: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 12,
+  margin: 20,
+  padding: 16,
+  borderRadius: 12,
+},
+accessInfoText: {
+  flex: 1,
+  fontSize: 13,
+  color: '#6B7280',
+  fontFamily: "Inter_400Regular",
+  lineHeight: 18,
+},
+exitBookModeBtn: {
+  position: 'absolute',
+  bottom: 110,
+  left: 20,
+  right: 20,
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  paddingVertical: 14,
+  borderRadius: 12,
+  shadowColor: '#EF4444',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.3,
+  shadowRadius: 8,
+  elevation: 5,
+},
+exitBookModeText: {
+  fontSize: 16,
+  color: '#FFF',
+  fontFamily: "Inter_600SemiBold",
 },
 });

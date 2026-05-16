@@ -15,6 +15,7 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { AppProvider } from "@/context/AppContext";
 import { LanguageProvider } from "@/context/LanguageContext";
 import { PinLockOverlay } from "@/components/PinLockOverlay";
+import { BookModeProvider } from "@/context/BookModeContext"; // ADD THIS IMPORT
 import { useColorScheme, ActivityIndicator, View } from "react-native";
 
 SplashScreen.preventAutoHideAsync();
@@ -225,12 +226,14 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <KeyboardProvider>
           <LanguageProvider>
-            <AuthProvider>
-              <AppProvider>
-                <RootLayoutNav />
-                <PinLockOverlay />
-              </AppProvider>
-            </AuthProvider>
+            <BookModeProvider> {/* ADD THIS WRAPPER */}
+              <AuthProvider>
+                <AppProvider>
+                  <RootLayoutNav />
+                  <PinLockOverlay />
+                </AppProvider>
+              </AuthProvider>
+            </BookModeProvider> {/* ADD THIS CLOSING TAG */}
           </LanguageProvider>
         </KeyboardProvider>
       </GestureHandlerRootView>

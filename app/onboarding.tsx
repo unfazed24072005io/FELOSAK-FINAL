@@ -1,3 +1,5 @@
+import { useAuth } from "@/context/AuthContext";
+import { auth } from "@/config/firebase";
 import favicon from '@/assets/images/favicon.png';
 import { doc, setDoc, collection, query, where, getDocs, addDoc, updateDoc } from "firebase/firestore";
 import { Image } from "react-native";
@@ -21,8 +23,6 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-import { auth } from "@/config/firebase";
 import { db } from "@/config/firebase";
 
 const STORAGE_KEY = "user_profile_data";
@@ -63,6 +63,7 @@ const INDUSTRIES = [
 
 export default function OnboardingScreen() {
   const insets = useSafeAreaInsets();
+  const { register } = useAuth();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showAccountFields, setShowAccountFields] = useState(false);
@@ -127,36 +128,14 @@ export default function OnboardingScreen() {
     const fullPhoneNumber = `${selectedCountryCode.code}${phoneNumber.trim()}`;
     const normalizedEmail = email.trim().toLowerCase();
     
-    console.log("🔵 Checking for invitation for:", normalizedEmail);
+    console.log("🔵 Registering user via AuthContext:", normalizedEmail);
     
-    // ✅ STEP 1: Check for pending invitation
-    let pendingInvite = null;
-    try {
-      const invitesQuery = query(
-        collection(db, 'pendingInvites'),
-        where('email', '==', normalizedEmail),
-        where('status', '==', 'pending')
-      );
-      const inviteSnapshot = await getDocs(invitesQuery);
-      
-      if (!inviteSnapshot.empty) {
-        pendingInvite = { id: inviteSnapshot.docs[0].id, ...inviteSnapshot.docs[0].data() };
-        console.log("✅ Found pending invitation for book:", pendingInvite.bookName);
-      } else {
-        console.log("No pending invitation found for:", normalizedEmail);
-      }
-    } catch (error) {
-      console.log("Error checking invites:", error);
-    }
+    // ✅ USE THE REGISTER FUNCTION FROM AUTHCONTEXT
+    await register(normalizedEmail, password, fullName);
     
-    // ✅ STEP 2: Create the user account
-    const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-    const user = userCredential.user;
-    console.log("✅ User created:", user.uid);
+    console.log("✅ User registered successfully");
     
-    await updateProfile(user, { displayName: fullName });
-    
-    // ✅ STEP 3: Save profile data
+    // Save profile data to AsyncStorage (optional - for app-specific data)
     const profileData = {
       name: fullName,
       phoneNumber: fullPhoneNumber,
@@ -172,83 +151,12 @@ export default function OnboardingScreen() {
       industry: industry,
     };
     
-    await AsyncStorage.setItem(`${STORAGE_KEY}_${user.uid}`, JSON.stringify(profileData));
-    await AsyncStorage.setItem(`${ORGANIZATION_KEY}_${user.uid}`, JSON.stringify(orgData));
-    
-    await setDoc(doc(db, 'userProfiles', user.uid), {
-      ...profileData,
-      ...orgData,
-      email: normalizedEmail,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      displayName: fullName,
-    });
-    
-    // ✅ STEP 4: Process invitation if exists
-    if (pendingInvite) {
-      console.log("🔄 Processing invitation for book:", pendingInvite.bookId);
-      
-      // Add to bookMembers
-      await addDoc(collection(db, 'bookMembers'), {
-        bookId: pendingInvite.bookId,
-        email: normalizedEmail,
-        role: pendingInvite.role || "viewer",
-        addedAt: new Date(),
-        addedBy: pendingInvite.invitedBy,
-        userId: user.uid,
-        name: fullName,
-        status: 'active',
-      });
-      
-      // Add to userBooks - THIS IS CRITICAL for the user to see the book
-      await addDoc(collection(db, 'userBooks'), {
-        userId: user.uid,
-        bookId: pendingInvite.bookId,
-        role: pendingInvite.role || "viewer",
-        addedAt: new Date(),
-      });
-      
-      // Mark invitation as accepted
-      await updateDoc(doc(db, 'pendingInvites', pendingInvite.id), {
-        status: 'accepted',
-        acceptedAt: new Date(),
-        userId: user.uid,
-      });
-      
-      console.log("✅ Invitation processed successfully");
-    } else {
-      // ✅ No invitation - create default book ONLY if no invitation
-      console.log("📚 No invitation found, creating default book");
-      
-      const defaultBook = {
-        name: "My Cash Book",
-        description: "Default cash book",
-        isCloud: true,
-        role: "owner",
-        userId: user.uid,
-        color: "#3B82F6",
-        icon: "📒",
-        createdAt: new Date(),
-      };
-      
-      const bookRef = await addDoc(collection(db, 'books'), {
-        ...defaultBook,
-        createdAt: new Date(),
-      });
-      
-      // Also add to userBooks for the owner
-      await addDoc(collection(db, 'userBooks'), {
-        userId: user.uid,
-        bookId: bookRef.id,
-        role: "owner",
-        addedAt: new Date(),
-      });
-      
-      console.log("✅ Default book created for new user");
-    }
-    
-    // ✅ STEP 5: Wait for Firestore to sync
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    // Option 2: Get the current user from auth
+const currentUser = auth.currentUser;
+if (currentUser) {
+  await AsyncStorage.setItem(`${STORAGE_KEY}_${currentUser.uid}`, JSON.stringify(profileData));
+  await AsyncStorage.setItem(`${ORGANIZATION_KEY}_${currentUser.uid}`, JSON.stringify(orgData));
+}
     
     console.log("✅ All done! Redirecting...");
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

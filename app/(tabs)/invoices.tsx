@@ -1,4 +1,4 @@
-// app/(tabs)/invoices.tsx - COMPLETELY FIXED WITH PDF DOWNLOAD
+// app/(tabs)/invoices.tsx - WITH READ ONLY RESTRICTION
 import React, { useCallback, useMemo, useState, useEffect } from "react";
 import {
   FlatList,
@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import { useApp, Document, DocumentType } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";  // ADD THIS
 import { useLanguage } from "@/context/LanguageContext";
 import { formatEGP, formatDate, getCurrencySymbol, getCurrencyCode, subscribeToCurrencyChanges } from "@/utils/format";
 import * as Print from 'expo-print';
@@ -64,7 +65,7 @@ function StatCard({ type, count, onPress }: { type: FilterType; count: number; o
   );
 }
 
-// Document Icon with consistent colors - SAME as StatCard
+// Document Icon with consistent colors
 function DocumentIcon({ type, size = 40 }: { type: string; size?: number }) {
   const config = DOCUMENT_CONFIG[type];
   const defaultConfig = DOCUMENT_CONFIG.Invoice;
@@ -105,11 +106,12 @@ function StatusBadge({ status, documentType }: { status: "paid" | "unpaid" | "ov
   );
 }
 
-// Recent Document Card with download button
-function RecentDocumentCard({ document, onPress, onDownload }: { 
+// Recent Document Card with download button - HIDE edit/delete if canEdit is false
+function RecentDocumentCard({ document, onPress, onDownload, canEdit }: { 
   document: Document; 
   onPress: () => void; 
   onDownload: () => void;
+  canEdit: boolean;
 }) {
   const getDocumentStatus = (doc: Document): "paid" | "unpaid" | "overdue" => {
     if (doc.status === "paid") return "paid";
@@ -122,7 +124,7 @@ function RecentDocumentCard({ document, onPress, onDownload }: {
   const status = getDocumentStatus(document);
 
   return (
-    <Pressable onPress={onPress} style={styles.recentCard}>
+    <Pressable onPress={canEdit ? onPress : undefined} disabled={!canEdit} style={[styles.recentCard, { opacity: !canEdit ? 0.8 : 1 }]}>
       <DocumentIcon type={document.type} size={44} />
       <View style={styles.recentContent}>
         <Text style={styles.recentNumber} numberOfLines={1}>{document.number}</Text>
@@ -139,13 +141,14 @@ function RecentDocumentCard({ document, onPress, onDownload }: {
   );
 }
 
-// Document Detail Modal with PDF download
-function DocumentDetailModal({ visible, onClose, document, onUpdateDocument, onDownloadPDF }: { 
+// Document Detail Modal - HIDE mark as paid button if canEdit is false
+function DocumentDetailModal({ visible, onClose, document, onUpdateDocument, onDownloadPDF, canEdit }: { 
   visible: boolean; 
   onClose: () => void; 
   document: Document | null;
   onUpdateDocument: (id: string, data: Partial<Document>) => Promise<void>;
   onDownloadPDF: (doc: Document) => void;
+  canEdit: boolean;
 }) {
   if (!document) return null;
   const config = DOCUMENT_CONFIG[document.type] || DOCUMENT_CONFIG.Invoice;
@@ -210,14 +213,15 @@ function DocumentDetailModal({ visible, onClose, document, onUpdateDocument, onD
                 {document.items.map((item, idx) => (
                   <View key={idx} style={styles.itemRow}>
                     <Text style={styles.itemName}>{item.name}</Text>
-                    <Text style={styles.itemQty}>x{item.quantity}</Text><Text style={styles.itemPrice}>{getCurrencyCode()} {item.price.toLocaleString('en-EG')}</Text>
-<Text style={styles.itemTotal}>{getCurrencyCode()} {item.total.toLocaleString('en-EG')}</Text>
+                    <Text style={styles.itemQty}>x{item.quantity}</Text>
+                    <Text style={styles.itemPrice}>{getCurrencyCode()} {item.price.toLocaleString('en-EG')}</Text>
+                    <Text style={styles.itemTotal}>{getCurrencyCode()} {item.total.toLocaleString('en-EG')}</Text>
                   </View>
                 ))}
               </View>
             )}
 
-            {/* Download PDF Button */}
+            {/* Download PDF Button - Always visible */}
             <Pressable
               onPress={() => onDownloadPDF(document)}
               style={styles.downloadPdfBtn}
@@ -228,7 +232,8 @@ function DocumentDetailModal({ visible, onClose, document, onUpdateDocument, onD
               </LinearGradient>
             </Pressable>
 
-            {(document.type === "Invoice" && document.status !== "paid") && (
+            {/* Mark as Paid Button - ONLY show if canEdit is true */}
+            {canEdit && (document.type === "Invoice" && document.status !== "paid") && (
               <Pressable
                 onPress={async () => {
                   try {
@@ -254,14 +259,16 @@ function DocumentDetailModal({ visible, onClose, document, onUpdateDocument, onD
   );
 }
 
-// Create Document Modal (Type Selector)
-function CreateDocumentModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+// Create Document Modal - DISABLED if canEdit is false
+function CreateDocumentModal({ visible, onClose, canEdit }: { visible: boolean; onClose: () => void; canEdit: boolean }) {
   const handleSelectType = (type: string) => {
+    if (!canEdit) return;
     onClose();
     router.push({ pathname: "/create-document", params: { type: type.toLowerCase().replace(/\s/g, "-") } });
   };
 
   const handleAIGenerate = () => {
+    if (!canEdit) return;
     onClose();
     router.push("/ai-document-chat");
   };
@@ -278,7 +285,7 @@ function CreateDocumentModal({ visible, onClose }: { visible: boolean; onClose: 
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>
-            <Pressable onPress={handleAIGenerate} style={styles.aiGenerateOption}>
+            <Pressable onPress={handleAIGenerate} disabled={!canEdit} style={[styles.aiGenerateOption, { opacity: !canEdit ? 0.6 : 1 }]}>
               <View style={styles.aiContent}>
                 <View>
                   <Text style={styles.aiTitle}>Generate with AI</Text>
@@ -301,7 +308,12 @@ function CreateDocumentModal({ visible, onClose }: { visible: boolean; onClose: 
             </View>
 
             {Object.keys(DOCUMENT_CONFIG).map((type) => (
-              <Pressable key={type} onPress={() => handleSelectType(type)} style={styles.typeOptionRow}>
+              <Pressable 
+                key={type} 
+                onPress={() => handleSelectType(type)} 
+                disabled={!canEdit}
+                style={[styles.typeOptionRow, { opacity: !canEdit ? 0.6 : 1 }]}
+              >
                 <View style={[styles.typeOptionIconRow, { backgroundColor: DOCUMENT_CONFIG[type].color + "15" }]}>
                   <Feather name={DOCUMENT_CONFIG[type].icon as any} size={24} color={DOCUMENT_CONFIG[type].color} />
                 </View>
@@ -320,6 +332,7 @@ function CreateDocumentModal({ visible, onClose }: { visible: boolean; onClose: 
 export default function DocumentsHub() {
   const insets = useSafeAreaInsets();
   const { documents, fetchDocuments, activeBook, updateDocument } = useApp();
+  const { currentBookAccess, isBookRestricted } = useAuth();  // ADD THIS
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [activeFilter, setActiveFilter] = useState<FilterType>("All");
   const [showSearchBar, setShowSearchBar] = useState(false);
@@ -328,6 +341,9 @@ export default function DocumentsHub() {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showDocumentDetail, setShowDocumentDetail] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Determine if user can edit
+  const canEdit = !isBookRestricted || currentBookAccess?.accessLevel === "write";
 
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
@@ -350,15 +366,17 @@ export default function DocumentsHub() {
       return () => {};
     }, [activeBook])
   );
-const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+  
+  const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
 
-useEffect(() => {
-  const unsubscribe = subscribeToCurrencyChanges(() => {
-    console.log("Currency changed, refreshing documents hub");
-    setCurrencyRefreshKey(prev => prev + 1);
-  });
-  return unsubscribe;
-}, []);
+  useEffect(() => {
+    const unsubscribe = subscribeToCurrencyChanges(() => {
+      console.log("Currency changed, refreshing documents hub");
+      setCurrencyRefreshKey(prev => prev + 1);
+    });
+    return unsubscribe;
+  }, []);
+  
   const onRefresh = async () => {
     setRefreshing(true);
     await loadDocuments();
@@ -366,93 +384,90 @@ useEffect(() => {
   };
 
   // Generate PDF for a single document
-  // Generate PDF for a single document
-const generateDocumentPDF = async (document: Document) => {
-  if (!document) return;
-  
-  try {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  const generateDocumentPDF = async (document: Document) => {
+    if (!document) return;
     
-    const config = DOCUMENT_CONFIG[document.type] || DOCUMENT_CONFIG.Invoice;
-    const currencyCode = getCurrencyCode();
-    const currencySymbol = getCurrencySymbol();
-    
-    // Helper to format amount with dynamic currency
-    const formatAmount = (amount: number) => `${currencyCode} ${amount.toLocaleString('en-EG')}`;
-    
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>${document.number}</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 40px; margin: 0; color: #333; }
-          .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid ${config.color}; padding-bottom: 20px; }
-          .header h1 { color: ${config.color}; margin: 0; font-size: 24px; }
-          .header p { color: #666; margin: 5px 0 0; font-size: 12px; }
-          .doc-info { background: #F9FAFB; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
-          .doc-number { font-size: 16px; font-weight: bold; color: ${config.color}; margin-bottom: 10px; }
-          .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
-          .label { font-weight: bold; color: #666; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th { background: ${config.color}; color: white; padding: 10px; text-align: left; font-size: 12px; }
-          td { padding: 8px 10px; border-bottom: 1px solid #E5E7EB; font-size: 11px; }
-          .total-row { margin-top: 20px; text-align: right; font-size: 16px; font-weight: bold; }
-          .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #999; border-top: 1px solid #E5E7EB; padding-top: 15px; }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <h1>${document.type}</h1>
-          <p>Generated: ${new Date().toLocaleString()}</p>
-        </div>
-        <div class="doc-info">
-          <div class="doc-number">${document.number}</div>
-          <div class="row"><span class="label">Party Name:</span><span>${document.partyName}</span></div>
-          <div class="row"><span class="label">Date:</span><span>${formatDate(document.date)}</span></div>
-          ${document.dueDate ? `<div class="row"><span class="label">Due Date:</span><span>${formatDate(document.dueDate)}</span></div>` : ''}
-          <div class="row"><span class="label">Amount:</span><span style="color: ${config.color}; font-weight: bold;">${formatAmount(document.amount)}</span></div>
-        </div>
-        ${document.items && document.items.length > 0 ? `
-        <table>
-          <thead><tr><th>Item</th><th>Quantity</th><th>Price</th><th>Total</th></tr></thead>
-          <tbody>
-            ${document.items.map(item => `
-              <tr>
-                <td>${item.name}</td>
-                <td>${item.quantity}</td>
-                <td>${formatAmount(item.price)}</td>
-                <td>${formatAmount(item.total)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        ` : ''}
-        ${document.notes ? `<div class="row" style="margin-top: 20px;"><span class="label">Notes:</span><span>${document.notes}</span></div>` : ''}
-        <div class="footer">
-          <p>Generated from Felosak App</p>
-        </div>
-      </body>
-      </html>
-    `;
-    
-    if (Platform.OS === 'web') {
-      const win = window.open();
-      win?.document.write(htmlContent);
-      win?.document.close();
-      win?.print();
-      Alert.alert("Success", "Print dialog opened. You can save as PDF.");
-    } else {
-      const { uri } = await Print.printToFileAsync({ html: htmlContent });
-      await Sharing.shareAsync(uri);
-      Alert.alert("Success", "PDF generated and shared!");
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      
+      const config = DOCUMENT_CONFIG[document.type] || DOCUMENT_CONFIG.Invoice;
+      const currencyCode = getCurrencyCode();
+      
+      const formatAmount = (amount: number) => `${currencyCode} ${amount.toLocaleString('en-EG')}`;
+      
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>${document.number}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; margin: 0; color: #333; }
+            .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid ${config.color}; padding-bottom: 20px; }
+            .header h1 { color: ${config.color}; margin: 0; font-size: 24px; }
+            .header p { color: #666; margin: 5px 0 0; font-size: 12px; }
+            .doc-info { background: #F9FAFB; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+            .doc-number { font-size: 16px; font-weight: bold; color: ${config.color}; margin-bottom: 10px; }
+            .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+            .label { font-weight: bold; color: #666; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th { background: ${config.color}; color: white; padding: 10px; text-align: left; font-size: 12px; }
+            td { padding: 8px 10px; border-bottom: 1px solid #E5E7EB; font-size: 11px; }
+            .total-row { margin-top: 20px; text-align: right; font-size: 16px; font-weight: bold; }
+            .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #999; border-top: 1px solid #E5E7EB; padding-top: 15px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${document.type}</h1>
+            <p>Generated: ${new Date().toLocaleString()}</p>
+          </div>
+          <div class="doc-info">
+            <div class="doc-number">${document.number}</div>
+            <div class="row"><span class="label">Party Name:</span><span>${document.partyName}</span></div>
+            <div class="row"><span class="label">Date:</span><span>${formatDate(document.date)}</span></div>
+            ${document.dueDate ? `<div class="row"><span class="label">Due Date:</span><span>${formatDate(document.dueDate)}</span></div>` : ''}
+            <div class="row"><span class="label">Amount:</span><span style="color: ${config.color}; font-weight: bold;">${formatAmount(document.amount)}</span></div>
+          </div>
+          ${document.items && document.items.length > 0 ? `
+          <table>
+            <thead><tr><th>Item</th><th>Quantity</th><th>Price</th><th>Total</th></tr></thead>
+            <tbody>
+              ${document.items.map(item => `
+                <tr>
+                  <td>${item.name}</td>
+                  <td>${item.quantity}</td>
+                  <td>${formatAmount(item.price)}</td>
+                  <td>${formatAmount(item.total)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          ` : ''}
+          ${document.notes ? `<div class="row" style="margin-top: 20px;"><span class="label">Notes:</span><span>${document.notes}</span></div>` : ''}
+          <div class="footer">
+            <p>Generated from Felosak App</p>
+          </div>
+        </body>
+        </html>
+      `;
+      
+      if (Platform.OS === 'web') {
+        const win = window.open();
+        win?.document.write(htmlContent);
+        win?.document.close();
+        win?.print();
+        Alert.alert("Success", "Print dialog opened. You can save as PDF.");
+      } else {
+        const { uri } = await Print.printToFileAsync({ html: htmlContent });
+        await Sharing.shareAsync(uri);
+        Alert.alert("Success", "PDF generated and shared!");
+      }
+    } catch (error) {
+      console.error("PDF Error:", error);
+      Alert.alert("Error", "Failed to generate PDF");
     }
-  } catch (error) {
-    console.error("PDF Error:", error);
-    Alert.alert("Error", "Failed to generate PDF");
-  }
-};
+  };
 
   // Calculate stats with real document counts
   const getCountForType = (type: string) => {
@@ -519,6 +534,7 @@ const generateDocumentPDF = async (document: Document) => {
       document={item} 
       onPress={() => handleDocumentPress(item)} 
       onDownload={() => generateDocumentPDF(item)}
+      canEdit={canEdit}  // PASS canEdit
     />
   );
 
@@ -593,22 +609,24 @@ const generateDocumentPDF = async (document: Document) => {
         </View>
       )}
 
-      {/* AI Generate Banner */}
-      <Pressable onPress={() => setShowCreateModal(true)} style={styles.aiBanner}>
-        <View style={styles.aiBannerContent}>
-          <View style={styles.aiBannerLeft}>
-            <Text style={styles.aiBannerTitle}>Generate with AI</Text>
-            <Text style={styles.aiBannerSubtitle}>Create any document in seconds using text or voice</Text>
+      {/* AI Generate Banner - ONLY show if canEdit */}
+      {canEdit && (
+        <Pressable onPress={() => setShowCreateModal(true)} style={styles.aiBanner}>
+          <View style={styles.aiBannerContent}>
+            <View style={styles.aiBannerLeft}>
+              <Text style={styles.aiBannerTitle}>Generate with AI</Text>
+              <Text style={styles.aiBannerSubtitle}>Create any document in seconds using text or voice</Text>
+            </View>
+            <View style={styles.aiRobotIcon}>
+              <Image 
+                source={{ uri: "https://i.ibb.co/N6YschDX/Gemini-Generated-Image-aua6dsaua6dsaua6.png" }}
+                style={styles.aiRobotImage}
+                resizeMode="contain"
+              />
+            </View>
           </View>
-          <View style={styles.aiRobotIcon}>
-            <Image 
-              source={{ uri: "https://i.ibb.co/N6YschDX/Gemini-Generated-Image-aua6dsaua6dsaua6.png" }}
-              style={styles.aiRobotImage}
-              resizeMode="contain"
-            />
-          </View>
-        </View>
-      </Pressable>
+        </Pressable>
+      )}
 
       {/* Document Stats Cards */}
       <View style={styles.statsWrapper}>
@@ -635,9 +653,9 @@ const generateDocumentPDF = async (document: Document) => {
 
       {/* Recent Documents List */}
       <FlatList
-  data={filteredDocuments}
-  keyExtractor={(item) => `${item.id}-${currencyRefreshKey}`}
-  renderItem={renderRecentDocument}
+        data={filteredDocuments}
+        keyExtractor={(item) => `${item.id}-${currencyRefreshKey}`}
+        renderItem={renderRecentDocument}
         contentContainerStyle={[styles.recentList, { paddingBottom: bottomPad + 80 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -647,35 +665,41 @@ const generateDocumentPDF = async (document: Document) => {
           <View style={styles.emptyContent}>
             <Feather name="file-text" size={44} color="#D1D5DB" />
             <Text style={styles.emptyText}>No documents found</Text>
-            <Pressable onPress={() => setShowCreateModal(true)} style={styles.emptyBtn}>
-              <Text style={styles.emptyBtnTxt}>Create Document</Text>
-            </Pressable>
+            {canEdit && (
+              <Pressable onPress={() => setShowCreateModal(true)} style={styles.emptyBtn}>
+                <Text style={styles.emptyBtnTxt}>Create Document</Text>
+              </Pressable>
+            )}
           </View>
         }
         ItemSeparatorComponent={() => <View style={[styles.separator, { backgroundColor: "#F0F0F0" }]} />}
       />
       
-      {/* Create Document FAB */}
-      <Pressable onPress={() => setShowCreateModal(true)} style={[styles.fab, { bottom: bottomPad + 80 }]}>
-        <LinearGradient colors={['#3B82F6', '#2563EB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabGradient}>
-          <Feather name="plus" size={28} color="#FFFFFF" />
-        </LinearGradient>
-      </Pressable>
+      {/* Create Document FAB - ONLY show if canEdit */}
+      {canEdit && (
+        <Pressable onPress={() => setShowCreateModal(true)} style={[styles.fab, { bottom: bottomPad + 80 }]}>
+          <LinearGradient colors={['#3B82F6', '#2563EB']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fabGradient}>
+            <Feather name="plus" size={28} color="#FFFFFF" />
+          </LinearGradient>
+        </Pressable>
+      )}
 
       {/* Modals */}
-      <CreateDocumentModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} />
+      <CreateDocumentModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} canEdit={canEdit} />
       <DocumentDetailModal 
         visible={showDocumentDetail} 
         onClose={() => setShowDocumentDetail(false)} 
         document={selectedDocument}
         onUpdateDocument={updateDocument}
         onDownloadPDF={generateDocumentPDF}
+        canEdit={canEdit}  // PASS canEdit
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // ... (keep all existing styles, they remain the same)
   container: { flex: 1 },
   header: {
     flexDirection: "row",

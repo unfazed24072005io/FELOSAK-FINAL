@@ -20,6 +20,7 @@ import { router } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useApp, Product } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";  // ADD THIS
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP, getCurrencyCode, subscribeToCurrencyChanges } from "@/utils/format";
@@ -30,6 +31,7 @@ export default function StoreScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { products, activeBook, updateProduct, deleteProduct } = useApp();
+  const { currentBookAccess, isBookRestricted } = useAuth();  // ADD THIS
   const { t } = useLanguage();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
@@ -37,15 +39,19 @@ export default function StoreScreen() {
   const [showSearchBar, setShowSearchBar] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [filterStock, setFilterStock] = useState<"all" | "inStock" | "outOfStock">("all");
-const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+  const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
 
-useEffect(() => {
-  const unsubscribe = subscribeToCurrencyChanges(() => {
-    console.log("Currency changed, refreshing store screen");
-    setCurrencyRefreshKey(prev => prev + 1);
-  });
-  return unsubscribe;
-}, []);
+  // Determine if user can edit
+  const canEdit = !isBookRestricted || currentBookAccess?.accessLevel === "write";
+
+  useEffect(() => {
+    const unsubscribe = subscribeToCurrencyChanges(() => {
+      console.log("Currency changed, refreshing store screen");
+      setCurrencyRefreshKey(prev => prev + 1);
+    });
+    return unsubscribe;
+  }, []);
+  
   const topPad = insets.top + (Platform.OS === "web" ? 67 : 0);
   const bottomPad = insets.bottom + (Platform.OS === "web" ? 34 : 0);
 
@@ -66,10 +72,11 @@ useEffect(() => {
   }, [activeBook]);
 
   const handleLongPress = useCallback((product: Product) => {
+    if (!canEdit) return;  // ADD THIS - Prevent delete if read only
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setDeleteTargetId(product.id);
     setShowDeleteConfirm(true);
-  }, []);
+  }, [canEdit]);
 
   const handleConfirmDelete = useCallback(() => {
     if (deleteTargetId) {
@@ -85,10 +92,11 @@ useEffect(() => {
   }, []);
 
   const handleUpdateQuantity = useCallback((product: Product, change: number) => {
+    if (!canEdit) return;  // ADD THIS - Prevent quantity change if read only
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const newQuantity = Math.max(0, (product.quantity || 0) + change);
     updateProduct(product.id, { quantity: newQuantity, inStock: newQuantity > 0 });
-  }, [updateProduct]);
+  }, [updateProduct, canEdit]);
 
   const toggleSearchBar = () => {
     Haptics.selectionAsync();
@@ -110,112 +118,116 @@ useEffect(() => {
   };
 
   const calculateTotalCost = useCallback((product: Product) => {
-  return (product.quantity || 0) * (product.costPrice || product.price);
-}, []);
+    return (product.quantity || 0) * (product.costPrice || product.price);
+  }, []);
 
   const renderProduct = useCallback(
-  ({ item }: { item: Product }) => {
-    const currencyCode = getCurrencyCode();
-    
-    return (
-      <Pressable
-        onPress={() =>
-          router.push({ pathname: "/add-product", params: { editId: item.id } })
-        }
-        onLongPress={() => handleLongPress(item)}
-        style={({ pressed }) => [
-          styles.productCard,
-          {
-            backgroundColor: theme.card,
-            borderColor: theme.border,
-            opacity: pressed ? 0.85 : 1,
-          },
-        ]}
-      >
-        {/* Left - Image */}
-        {item.image ? (
-          <Image source={{ uri: item.image }} style={styles.productImage} />
-        ) : (
-          <View style={[styles.productImagePlaceholder, { backgroundColor: theme.surface }]}>
-            <Feather name="package" size={40} color={theme.textSecondary} />
-          </View>
-        )}
-        
-        {/* Middle - Product Details */}
-        <View style={styles.productInfo}>
-          <Text
-            style={[styles.productName, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
-            numberOfLines={2}
-          >
-            {item.name}
-          </Text>
-          
-          <View style={styles.priceRow}>
-            {item.costPrice && (
-              <Text style={[styles.costPrice, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                Cost: {currencyCode} {item.costPrice.toLocaleString()}
-              </Text>
-            )}
-          </View>
-          
-          {/* Total Cost Card */}
-          <View style={[styles.totalCostCard, { backgroundColor: theme.surface + '80' }]}>
-            <Text style={[styles.totalCostLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              Total Value:
-            </Text>
-            <Text style={[styles.totalCostValue, { color: theme.tint, fontFamily: "Inter_700Bold" }]}>
-              {currencyCode} {calculateTotalCost(item).toLocaleString()}
-            </Text>
-          </View>
-
-          <View style={styles.stockControls}>
-            <View style={styles.quantityControls}>
-              <Pressable
-                onPress={() => handleUpdateQuantity(item, -1)}
-                style={({ pressed }) => [
-                  styles.quantityBtn,
-                  {
-                    backgroundColor: theme.expense + '20',
-                    opacity: pressed ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <Feather name="minus" size={16} color={theme.expense} />
-              </Pressable>
-              <Text style={[styles.quantityText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
-                {(item.quantity || 0)}
-              </Text>
-              <Pressable
-                onPress={() => handleUpdateQuantity(item, 1)}
-                style={({ pressed }) => [
-                  styles.quantityBtn,
-                  {
-                    backgroundColor: theme.income + '20',
-                    opacity: pressed ? 0.7 : 1,
-                  },
-                ]}
-              >
-                <Feather name="plus" size={16} color={theme.income} />
-              </Pressable>
+    ({ item }: { item: Product }) => {
+      const currencyCode = getCurrencyCode();
+      
+      return (
+        <Pressable
+          onPress={() => {
+            if (!canEdit) return;  // ADD THIS - Prevent edit if read only
+            router.push({ pathname: "/add-product", params: { editId: item.id } });
+          }}
+          onLongPress={() => handleLongPress(item)}
+          disabled={!canEdit}  // ADD THIS - Disable if read only
+          style={({ pressed }) => [
+            styles.productCard,
+            {
+              backgroundColor: theme.card,
+              borderColor: theme.border,
+              opacity: pressed && canEdit ? 0.85 : !canEdit ? 0.7 : 1,
+            },
+          ]}
+        >
+          {/* Left - Image */}
+          {item.image ? (
+            <Image source={{ uri: item.image }} style={styles.productImage} />
+          ) : (
+            <View style={[styles.productImagePlaceholder, { backgroundColor: theme.surface }]}>
+              <Feather name="package" size={40} color={theme.textSecondary} />
             </View>
+          )}
+          
+          {/* Middle - Product Details */}
+          <View style={styles.productInfo}>
             <Text
-              style={[
-                styles.stockStatus,
-                {
-                  color: (item.quantity || 0) > 0 ? theme.income : theme.expense,
-                  fontFamily: "Inter_500Medium",
-                },
-              ]}
+              style={[styles.productName, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}
+              numberOfLines={2}
             >
-              {(item.quantity || 0) > 0 ? `${t("inStock")} (${item.quantity})` : t("outOfStock")}
+              {item.name}
             </Text>
+            
+            <View style={styles.priceRow}>
+              {item.costPrice && (
+                <Text style={[styles.costPrice, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                  Cost: {currencyCode} {item.costPrice.toLocaleString()}
+                </Text>
+              )}
+            </View>
+            
+            {/* Total Cost Card */}
+            <View style={[styles.totalCostCard, { backgroundColor: theme.surface + '80' }]}>
+              <Text style={[styles.totalCostLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                Total Value:
+              </Text>
+              <Text style={[styles.totalCostValue, { color: theme.tint, fontFamily: "Inter_700Bold" }]}>
+                {currencyCode} {calculateTotalCost(item).toLocaleString()}
+              </Text>
+            </View>
+
+            <View style={styles.stockControls}>
+              <View style={styles.quantityControls}>
+                <Pressable
+                  onPress={() => handleUpdateQuantity(item, -1)}
+                  disabled={!canEdit}  // ADD THIS - Disable if read only
+                  style={({ pressed }) => [
+                    styles.quantityBtn,
+                    {
+                      backgroundColor: theme.expense + '20',
+                      opacity: (pressed || !canEdit) ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Feather name="minus" size={16} color={theme.expense} />
+                </Pressable>
+                <Text style={[styles.quantityText, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                  {(item.quantity || 0)}
+                </Text>
+                <Pressable
+                  onPress={() => handleUpdateQuantity(item, 1)}
+                  disabled={!canEdit}  // ADD THIS - Disable if read only
+                  style={({ pressed }) => [
+                    styles.quantityBtn,
+                    {
+                      backgroundColor: theme.income + '20',
+                      opacity: (pressed || !canEdit) ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Feather name="plus" size={16} color={theme.income} />
+                </Pressable>
+              </View>
+              <Text
+                style={[
+                  styles.stockStatus,
+                  {
+                    color: (item.quantity || 0) > 0 ? theme.income : theme.expense,
+                    fontFamily: "Inter_500Medium",
+                  },
+                ]}
+              >
+                {(item.quantity || 0) > 0 ? `${t("inStock")} (${item.quantity})` : t("outOfStock")}
+              </Text>
+            </View>
           </View>
-        </View>
-      </Pressable>
-    );
-  },
-  [theme, t, handleLongPress, handleUpdateQuantity, calculateTotalCost]
-);
+        </Pressable>
+      );
+    },
+    [theme, t, handleLongPress, handleUpdateQuantity, calculateTotalCost, canEdit]
+  );
 
   if (!activeBook) {
     return (
@@ -317,9 +329,9 @@ useEffect(() => {
 
       {/* Products List */}
       <FlatList
-  data={filteredProducts}
-  keyExtractor={(item) => `${item.id}-${currencyRefreshKey}`}
-  renderItem={renderProduct}
+        data={filteredProducts}
+        keyExtractor={(item) => `${item.id}-${currencyRefreshKey}`}
+        renderItem={renderProduct}
         scrollEnabled={filteredProducts.length > 0}
         contentContainerStyle={[
           styles.list,
@@ -345,30 +357,32 @@ useEffect(() => {
         }
       />
 
-      {/* Add Product Button */}
-      <View style={{ position: "absolute", bottom: bottomPad + 55, left: 20, right: 20 }}>
-        <Pressable
-          testID="add-product-btn"
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            router.push("/add-product");
-          }}
-          style={({ pressed }) => ({ 
-            opacity: pressed ? 0.85 : 1,
-            borderRadius: 12,
-            overflow: "hidden",
-            backgroundColor: '#3B82F6',
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            paddingVertical: 14,
-            gap: 8,
-          })}
-        >
-          <Feather name="plus" size={20} color="#FFFFFF" />
-          <Text style={styles.addButtonText}>Add Product</Text>
-        </Pressable>
-      </View>
+      {/* Add Product Button - ONLY show if canEdit */}
+      {canEdit && (
+        <View style={{ position: "absolute", bottom: bottomPad + 55, left: 20, right: 20 }}>
+          <Pressable
+            testID="add-product-btn"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              router.push("/add-product");
+            }}
+            style={({ pressed }) => ({ 
+              opacity: pressed ? 0.85 : 1,
+              borderRadius: 12,
+              overflow: "hidden",
+              backgroundColor: '#3B82F6',
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              paddingVertical: 14,
+              gap: 8,
+            })}
+          >
+            <Feather name="plus" size={20} color="#FFFFFF" />
+            <Text style={styles.addButtonText}>Add Product</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Filter Modal */}
       <Modal
@@ -432,9 +446,9 @@ useEffect(() => {
         </Pressable>
       </Modal>
 
-      {/* Delete Modal */}
+      {/* Delete Modal - ONLY show if canEdit */}
       <Modal
-        visible={showDeleteConfirm}
+        visible={showDeleteConfirm && canEdit}
         transparent
         animationType="fade"
         onRequestClose={handleCancelDelete}

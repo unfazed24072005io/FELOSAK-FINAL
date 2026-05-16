@@ -20,6 +20,7 @@ import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 import { useApp, Debt } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";  // ADD THIS
 import { useLanguage } from "@/context/LanguageContext";
 import Colors from "@/constants/colors";
 import { formatEGP, formatDate, getCurrencyCode, getCurrencySymbol, subscribeToCurrencyChanges } from "@/utils/format";
@@ -32,6 +33,7 @@ export default function DebtorsScreen() {
   const isDark = colorScheme !== "light";
   const theme = isDark ? Colors.dark : Colors.light;
   const { debts, deleteDebt, updateDebt, activeBook } = useApp();
+  const { currentBookAccess, isBookRestricted } = useAuth();  // ADD THIS
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<TabDir>("owed_to_me");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -42,6 +44,9 @@ export default function DebtorsScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [currencyRefreshKey, setCurrencyRefreshKey] = useState(0);
+
+  // Determine if user can edit
+  const canEdit = !isBookRestricted || currentBookAccess?.accessLevel === "write";
 
 useEffect(() => {
   const unsubscribe = subscribeToCurrencyChanges(() => {
@@ -152,19 +157,21 @@ const formatAmount = (amount: number) => {
 
   const handleSettle = useCallback(
     (debt: Debt) => {
+      if (!canEdit) return;  // ADD THIS - Prevent settle if read only
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       updateDebt(debt.id, { settled: true });
     },
-    [updateDebt]
+    [updateDebt, canEdit]
   );
 
   const handleDelete = useCallback(
     (debt: Debt) => {
+      if (!canEdit) return;  // ADD THIS - Prevent delete if read only
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       setDebtToDelete(debt);
       setShowDeleteModal(true);
     },
-    []
+    [canEdit]
   );
 
   const handleConfirmDelete = useCallback(() => {
@@ -187,13 +194,15 @@ const formatAmount = (amount: number) => {
         theme={theme}
         onSettle={handleSettle}
         onDelete={handleDelete}
-        onEdit={() =>
-          router.push({ pathname: "/add-debt", params: { editId: item.id } })
-        }
+        onEdit={() => {
+          if (!canEdit) return;  // ADD THIS - Prevent edit if read only
+          router.push({ pathname: "/add-debt", params: { editId: item.id } });
+        }}
         t={t}
+        canEdit={canEdit}  // ADD THIS - Pass canEdit to DebtCard
       />
     ),
-    [theme, handleSettle, handleDelete, t]
+    [theme, handleSettle, handleDelete, t, canEdit]
   );
 
   if (!activeBook) {
@@ -241,18 +250,21 @@ const formatAmount = (amount: number) => {
               {months[selectedMonth]} {selectedYear}
             </Text>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              router.push("/add-debt");
-            }}
-            style={({ pressed }) => [
-              styles.addBtnBlue,
-              { opacity: pressed ? 0.8 : 1 },
-            ]}
-          >
-            <Feather name="plus" size={20} color="#FFFFFF" />
-          </Pressable>
+          {/* Add Button - ONLY show if canEdit */}
+          {canEdit && (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                router.push("/add-debt");
+              }}
+              style={({ pressed }) => [
+                styles.addBtnBlue,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <Feather name="plus" size={20} color="#FFFFFF" />
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -317,150 +329,158 @@ const formatAmount = (amount: number) => {
         </View>
       </View>
 
-      {/* Action Buttons Bar */}
-      <View style={styles.actionBar}>
-        <Pressable
-          onPress={() => router.push("/add-debt")}
-          style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.8 : 1 }]}
-        >
-          <Feather name="arrow-up-circle" size={22} color="#10B981" />
-          <Text style={styles.actionBtnText}>Add Income</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => router.push("/add-debt")}
-          style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.8 : 1 }]}
-        >
-          <Feather name="arrow-down-circle" size={22} color="#EF4444" />
-          <Text style={styles.actionBtnText}>Add Expense</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setShowDatePicker(true)}
-          style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.8 : 1 }]}
-        >
-          <Feather name="calendar" size={22} color="#6B7280" />
-          <Text style={styles.actionBtnText}>Select Date</Text>
-        </Pressable>
-        <Pressable
-  onPress={() => router.push("/analytics")}
-  style={({ pressed }) => [styles.actionBtn, styles.viewReportBtn, { opacity: pressed ? 0.8 : 1 }]}
+      {/* Action Buttons Bar - ONLY show if canEdit */}
+      {canEdit && (
+        <View style={styles.actionBar}>
+          <Pressable
+  onPress={() => router.push({ pathname: "/add-debt", params: { type: "owed_to_me" } })}
+  style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.8 : 1 }]}
 >
-  <Feather name="bar-chart-2" size={22} color="#FFFFFF" />
-  <Text style={[styles.actionBtnText, { color: "#FFFFFF" }]}>View Report</Text>
+  <Feather name="arrow-up-circle" size={22} color="#10B981" />
+  <Text style={styles.actionBtnText}>Add Income</Text>
 </Pressable>
-      </View>
+<Pressable
+  onPress={() => router.push({ pathname: "/add-debt", params: { type: "i_owe" } })}
+  style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.8 : 1 }]}
+>
+  <Feather name="arrow-down-circle" size={22} color="#EF4444" />
+  <Text style={styles.actionBtnText}>Add Expense</Text>
+</Pressable>
+          <Pressable
+            onPress={() => setShowDatePicker(true)}
+            style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.8 : 1 }]}
+          >
+            <Feather name="calendar" size={22} color="#6B7280" />
+            <Text style={styles.actionBtnText}>Select Date</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push("/analytics")}
+            style={({ pressed }) => [styles.actionBtn, styles.viewReportBtn, { opacity: pressed ? 0.8 : 1 }]}
+          >
+            <Feather name="bar-chart-2" size={22} color="#FFFFFF" />
+            <Text style={[styles.actionBtnText, { color: "#FFFFFF" }]}>View Report</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* Tab Switcher for Income/Expense */}
-<View style={styles.tabContainer}>
-  <Pressable
-    onPress={() => setActiveTab("owed_to_me")}
-    style={[
-      styles.tabButton,
-      activeTab === "owed_to_me" && styles.activeTabButton,
-    ]}
-  >
-    <Feather name="arrow-down" size={18} color={activeTab === "owed_to_me" ? "#10B981" : "#6B7280"} />
-    <Text style={[styles.tabButtonText, { color: activeTab === "owed_to_me" ? "#10B981" : "#6B7280" }]}>
-      Income
-    </Text>
-  </Pressable>
-  <Pressable
-    onPress={() => setActiveTab("i_owe")}
-    style={[
-      styles.tabButton,
-      activeTab === "i_owe" && styles.activeTabButton,
-    ]}
-  >
-    <Feather name="arrow-up" size={18} color={activeTab === "i_owe" ? "#EF4444" : "#6B7280"} />
-    <Text style={[styles.tabButtonText, { color: activeTab === "i_owe" ? "#EF4444" : "#6B7280" }]}>
-      Expense
-    </Text>
-  </Pressable>
-</View>
-      <FlatList
-  data={filtered}
-  keyExtractor={(item) => `${item.id}-${currencyRefreshKey}`}
-  renderItem={renderItem}
-  scrollEnabled={true}  // CHANGED: Always scrollable
-  contentContainerStyle={[
-    styles.list,
-    { paddingBottom: bottomPad + 400 },
-    (!filtered.length && !settled.length) && styles.emptyContainer,
-  ]}
-  ListHeaderComponent={
-    filtered.length > 0 ? (
-      <Text
-        style={[
-          styles.subheading,
-          { color: "#6B7280", fontFamily: "Inter_500Medium" },
-        ]}
-      >
-        Outstanding ({filtered.length})
-      </Text>
-    ) : null
-  }
-  ListFooterComponent={
-    settled.length > 0 ? (
-      <View>
-        <Text
+      <View style={styles.tabContainer}>
+        <Pressable
+          onPress={() => setActiveTab("owed_to_me")}
           style={[
-            styles.subheading,
-            {
-              color: "#6B7280",
-              fontFamily: "Inter_500Medium",
-              marginTop: 20,
-            },
+            styles.tabButton,
+            activeTab === "owed_to_me" && styles.activeTabButton,
           ]}
         >
-          Settled ({settled.length})
-        </Text>
-        {settled.map((d) => (
-          <DebtCard
-            key={d.id}
-            debt={d}
-            theme={theme}
-            onSettle={handleSettle}
-            onDelete={handleDelete}
-            onEdit={() =>
-              router.push({
-                pathname: "/add-debt",
-                params: { editId: d.id },
-              })
-            }
-            t={t}
-          />
-        ))}
+          <Feather name="arrow-down" size={18} color={activeTab === "owed_to_me" ? "#10B981" : "#6B7280"} />
+          <Text style={[styles.tabButtonText, { color: activeTab === "owed_to_me" ? "#10B981" : "#6B7280" }]}>
+            Income
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setActiveTab("i_owe")}
+          style={[
+            styles.tabButton,
+            activeTab === "i_owe" && styles.activeTabButton,
+          ]}
+        >
+          <Feather name="arrow-up" size={18} color={activeTab === "i_owe" ? "#EF4444" : "#6B7280"} />
+          <Text style={[styles.tabButtonText, { color: activeTab === "i_owe" ? "#EF4444" : "#6B7280" }]}>
+            Expense
+          </Text>
+        </Pressable>
       </View>
-    ) : null
-  }
-  ListEmptyComponent={
-    <View style={styles.emptyContent}>
-      <Feather name="users" size={44} color="#D1D5DB" />
-      <Text
-        style={[
-          styles.emptyText,
-          { color: "#6B7280", fontFamily: "Inter_400Regular" },
+      
+      <FlatList
+        data={filtered}
+        keyExtractor={(item) => `${item.id}-${currencyRefreshKey}`}
+        renderItem={renderItem}
+        scrollEnabled={true}
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: bottomPad + 400 },
+          (!filtered.length && !settled.length) && styles.emptyContainer,
         ]}
-      >
-        {activeTab === "owed_to_me"
-          ? "No one owes you"
-          : "You don't owe anyone"}
-      </Text>
-      <Pressable
-        onPress={() => router.push("/add-debt")}
-        style={({ pressed }) => [
-          styles.emptyBtn,
-          { backgroundColor: "#3B82F6", opacity: pressed ? 0.8 : 1 },
-        ]}
-      >
-        <Text style={[styles.emptyBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>
-          Add Entry
-        </Text>
-      </Pressable>
-    </View>
-  }
-  ItemSeparatorComponent={() => (
-    <View style={[styles.separator, { backgroundColor: "#E5E7EB" }]} />
-  )}
-/>
+        ListHeaderComponent={
+          filtered.length > 0 ? (
+            <Text
+              style={[
+                styles.subheading,
+                { color: "#6B7280", fontFamily: "Inter_500Medium" },
+              ]}
+            >
+              Outstanding ({filtered.length})
+            </Text>
+          ) : null
+        }
+        ListFooterComponent={
+          settled.length > 0 ? (
+            <View>
+              <Text
+                style={[
+                  styles.subheading,
+                  {
+                    color: "#6B7280",
+                    fontFamily: "Inter_500Medium",
+                    marginTop: 20,
+                  },
+                ]}
+              >
+                Settled ({settled.length})
+              </Text>
+              {settled.map((d) => (
+                <DebtCard
+                  key={d.id}
+                  debt={d}
+                  theme={theme}
+                  onSettle={handleSettle}
+                  onDelete={handleDelete}
+                  onEdit={() => {
+                    if (!canEdit) return;
+                    router.push({
+                      pathname: "/add-debt",
+                      params: { editId: d.id },
+                    });
+                  }}
+                  t={t}
+                  canEdit={canEdit}
+                />
+              ))}
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContent}>
+            <Feather name="users" size={44} color="#D1D5DB" />
+            <Text
+              style={[
+                styles.emptyText,
+                { color: "#6B7280", fontFamily: "Inter_400Regular" },
+              ]}
+            >
+              {activeTab === "owed_to_me"
+                ? "No one owes you"
+                : "You don't owe anyone"}
+            </Text>
+            {canEdit && (
+              <Pressable
+                onPress={() => router.push("/add-debt")}
+                style={({ pressed }) => [
+                  styles.emptyBtn,
+                  { backgroundColor: "#3B82F6", opacity: pressed ? 0.8 : 1 },
+                ]}
+              >
+                <Text style={[styles.emptyBtnTxt, { fontFamily: "Inter_600SemiBold" }]}>
+                  Add Entry
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        }
+        ItemSeparatorComponent={() => (
+          <View style={[styles.separator, { backgroundColor: "#E5E7EB" }]} />
+        )}
+      />
 
       {/* Month Filter Modal */}
       <Modal visible={showMonthFilter} transparent animationType="slide" onRequestClose={() => setShowMonthFilter(false)}>
@@ -639,6 +659,7 @@ function DebtCard({
   onDelete,
   onEdit,
   t,
+  canEdit,  // ADD THIS
 }: {
   debt: Debt;
   theme: typeof Colors.dark;
@@ -646,6 +667,7 @@ function DebtCard({
   onDelete: (d: Debt) => void;
   onEdit: () => void;
   t: (key: any, params?: Record<string, string | number>) => string;
+  canEdit: boolean;  // ADD THIS
 }) {
   const isOwedToMe = debt.direction === "owed_to_me";
   const color = isOwedToMe ? "#10B981" : theme.expense;
@@ -696,16 +718,16 @@ const formatAmount = (amount: number) => `${currencyCode} ${amount.toLocaleStrin
 
   return (
     <Pressable
-      onPress={onEdit}
-      onLongPress={() => onDelete(debt)}
-      // In the Pressable style of DebtCard, add marginBottom:
-style={({ pressed }) => [
-  styles.debtCard,
-  {
-    opacity: pressed ? 0.8 : debt.settled ? 0.5 : 1,
-    marginBottom: 4,  // Add this line
-  },
-]}
+      onPress={canEdit ? onEdit : undefined}  // Only allow edit if canEdit
+      onLongPress={canEdit ? () => onDelete(debt) : undefined}  // Only allow delete if canEdit
+      disabled={!canEdit}  // Disable if read only
+      style={({ pressed }) => [
+        styles.debtCard,
+        {
+          opacity: pressed && canEdit ? 0.8 : debt.settled ? 0.5 : 1,
+          marginBottom: 4,
+        },
+      ]}
     >
       <View style={[styles.debtAvatar, { backgroundColor: color + "22" }]}>
         <Text style={[styles.debtInitial, { color, fontFamily: "Inter_700Bold" }]}>
@@ -830,7 +852,8 @@ style={({ pressed }) => [
           </View>
         ) : null}
       </View>
-      {!debt.settled && (
+      {/* Settle button - ONLY show if canEdit */}
+      {!debt.settled && canEdit && (
         <Pressable
           onPress={() => onSettle(debt)}
           style={({ pressed }) => [
@@ -1027,13 +1050,13 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 20, paddingTop: 4 },
   emptyContainer: { flex: 1 },
   emptyContent: {
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 12,
-  paddingTop: 60,
-  paddingBottom: 200,  // ADD THIS - gives extra bottom space
-  minHeight: 500,      // ADD THIS - ensures it takes enough height to scroll
-},
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingTop: 60,
+    paddingBottom: 200,
+    minHeight: 500,
+  },
   emptyText: { fontSize: 15 },
   emptyBtn: {
     paddingHorizontal: 24,
@@ -1202,34 +1225,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "Inter_500Medium",
   },
-tabContainer: {
-  flexDirection: "row",
-  marginHorizontal: 20,
-  marginBottom: 16,
-  gap: 12,
-  backgroundColor: "#F3F4F6",
-  borderRadius: 12,
-  padding: 4,
-},
-tabButton: {
-  flex: 1,
-  flexDirection: "row",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 8,
-  paddingVertical: 10,
-  borderRadius: 10,
-},
-activeTabButton: {
-  backgroundColor: "#FFFFFF",
-  shadowColor: "#000",
-  shadowOffset: { width: 0, height: 1 },
-  shadowOpacity: 0.1,
-  shadowRadius: 2,
-  elevation: 2,
-},
-tabButtonText: {
-  fontSize: 14,
-  fontFamily: "Inter_600SemiBold",
-},
+  tabContainer: {
+    flexDirection: "row",
+    marginHorizontal: 20,
+    marginBottom: 16,
+    gap: 12,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    padding: 4,
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  activeTabButton: {
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+  },
 });

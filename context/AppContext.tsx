@@ -77,6 +77,10 @@ export interface CashBook {
   userId: string;
   color?: string;
   icon?: string;
+  accessPassword?: string;
+  passwordProtected?: boolean;
+  defaultAccess?: "read" | "write";
+  passwordAccessLevel?: "read" | "write";
 }
 
 export interface InvoiceItem {
@@ -126,9 +130,9 @@ interface AppContextValue {
   books: CashBook[];
   activeBook: CashBook | null;
   setActiveBook: (book: CashBook | null) => void;
-  createBook: (name: string, description: string, isCloud: boolean, icon?: string) => Promise<void>;
+  createBook: (name: string, description: string, isCloud: boolean, icon?: string, accessPassword?: string, defaultAccess?: "read" | "write") => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
-  updateBook: (id: string, data: { name?: string; description?: string; icon?: string }) => Promise<void>;
+  updateBook: (id: string, data: { name?: string; description?: string; icon?: string; accessPassword?: string; passwordProtected?: boolean }) => Promise<void>;
   transactions: Transaction[];
   debts: Debt[];
   totalBalanceAllBooks: number;
@@ -163,6 +167,10 @@ interface AppContextValue {
   totalExpense: number;
   refreshBooks: () => Promise<void>;
   isLoadingBooks: boolean;
+  // NEW: Book password functions
+  setBookPassword: (bookId: string, password: string, accessLevel?: "read" | "write") => Promise<void>;
+  removeBookPassword: (bookId: string) => Promise<void>;
+  verifyBookPassword: (bookId: string, password: string) => Promise<{ valid: boolean; accessLevel?: string }>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -204,47 +212,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const calculateAllBooksTotals = useCallback(async () => {
-  const userId = user?.id;
-  
-  if (!userId) {
-    console.log("No user ID, skipping totals calculation");
-    return { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
-  }
-  
-  try {
-    console.log("Calculating totals for user:", userId);
+    const userId = user?.id;
     
-    const transactionsQuery = query(
-      collection(db, 'transactions'),
-      where('userId', '==', userId)
-    );
+    if (!userId) {
+      console.log("No user ID, skipping totals calculation");
+      return { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
+    }
     
-    const transactionsSnapshot = await getDocs(transactionsQuery);
-    
-    let totalIncome = 0;
-    let totalExpense = 0;
-    
-    transactionsSnapshot.docs.forEach(doc => {
-      const data = doc.data();
-      if (data.type === 'income') {
-        totalIncome += data.amount || 0;
-      } else if (data.type === 'expense') {
-        totalExpense += data.amount || 0;
-      }
-    });
-    
-    console.log("Totals calculated - Income:", totalIncome, "Expense:", totalExpense, "Balance:", totalIncome - totalExpense);
-    
-    return {
-      totalBalance: totalIncome - totalExpense,
-      totalIncome: totalIncome,
-      totalExpense: totalExpense
-    };
-  } catch (error) {
-    console.error("Failed to calculate all books totals:", error);
-    return { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
-  }
-}, [user]);
+    try {
+      console.log("Calculating totals for user:", userId);
+      
+      const transactionsQuery = query(
+        collection(db, 'transactions'),
+        where('userId', '==', userId)
+      );
+      
+      const transactionsSnapshot = await getDocs(transactionsQuery);
+      
+      let totalIncome = 0;
+      let totalExpense = 0;
+      
+      transactionsSnapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.type === 'income') {
+          totalIncome += data.amount || 0;
+        } else if (data.type === 'expense') {
+          totalExpense += data.amount || 0;
+        }
+      });
+      
+      console.log("Totals calculated - Income:", totalIncome, "Expense:", totalExpense, "Balance:", totalIncome - totalExpense);
+      
+      return {
+        totalBalance: totalIncome - totalExpense,
+        totalIncome: totalIncome,
+        totalExpense: totalExpense
+      };
+    } catch (error) {
+      console.error("Failed to calculate all books totals:", error);
+      return { totalBalance: 0, totalIncome: 0, totalExpense: 0 };
+    }
+  }, [user]);
 
   const [allBooksTotals, setAllBooksTotals] = useState({ totalBalance: 0, totalIncome: 0, totalExpense: 0 });
   
@@ -258,149 +266,226 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     calculateAllBooksTotals();
   }, [user, books]);
 
-  // Load book data
-  const loadBookData = useCallback(async (book: CashBook) => {
-  const userId = user?.id;
+  // NEW: Set book password with access level
+const setBookPassword = useCallback(async (bookId: string, password: string, accessLevel: "read" | "write" = "read") => {
+  if (!user) throw new Error("User not authenticated");
   
-  if (!userId) {
-    console.log("No user yet, waiting...");
-    return;
+  const bookRef = doc(db, 'books', bookId);
+  await updateDoc(bookRef, {
+    accessPassword: password,
+    passwordProtected: true,
+    passwordAccessLevel: accessLevel,
+    passwordSetAt: Timestamp.now(),
+    passwordSetBy: user.id,
+  });
+  
+  setBooks(prev => prev.map(b => 
+    b.id === bookId 
+      ? { ...b, accessPassword: password, passwordProtected: true, defaultAccess: accessLevel }
+      : b
+  ));
+  
+  if (activeBook?.id === bookId) {
+    setActiveBookState(prev => prev ? { ...prev, accessPassword: password, passwordProtected: true, defaultAccess: accessLevel } : prev);
   }
+}, [user, activeBook]);
 
-  console.log("Loading data for book:", book.id, "User:", userId);
-
-  try {
-    setTransactions([]);
-    setDebts([]);
-    setProducts([]);
-    setInvoices([]);
-    setDocuments([]);
-
-    // Load Transactions
-    const txQuery = query(
-      collection(db, 'transactions'),
-      where('bookId', '==', book.id),
-      where('userId', '==', userId),
-      orderBy('date', 'desc')
-    );
-    const txSnapshot = await getDocs(txQuery);
-    console.log("Transactions found:", txSnapshot.size);
+  // NEW: Remove book password
+  const removeBookPassword = useCallback(async (bookId: string) => {
+    if (!user) throw new Error("User not authenticated");
     
-    const loadedTransactions: Transaction[] = txSnapshot.docs.map(doc => ({
-      id: doc.id,
-      type: doc.data().type,
-      amount: doc.data().amount,
-      category: doc.data().category,
-      note: doc.data().note || "",
-      date: doc.data().date,
-      paymentMode: doc.data().paymentMode || "cash",
-      attachment: doc.data().attachment || "",
-      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-      userId: doc.data().userId,
-      bookId: doc.data().bookId,
-    }));
-    setTransactions(loadedTransactions);
+    const bookRef = doc(db, 'books', bookId);
+    await updateDoc(bookRef, {
+      accessPassword: null,
+      passwordProtected: false,
+    });
+    
+    setBooks(prev => prev.map(b => 
+      b.id === bookId 
+        ? { ...b, accessPassword: undefined, passwordProtected: false }
+        : b
+    ));
+    
+    if (activeBook?.id === bookId) {
+      setActiveBookState(prev => prev ? { ...prev, accessPassword: undefined, passwordProtected: false } : prev);
+    }
+  }, [user, activeBook]);
 
-    // Load Debts
-    const debtQuery = query(
-      collection(db, 'debtors'),
-      where('bookId', '==', book.id),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
-    );
-    const debtSnapshot = await getDocs(debtQuery);
-    const loadedDebts: Debt[] = debtSnapshot.docs.map(doc => ({
-      id: doc.id,
-      direction: doc.data().direction,
-      name: doc.data().name,
-      amount: doc.data().amount,
-      note: doc.data().note || "",
-      phone: doc.data().phone || "",
-      dueDate: doc.data().dueDate || "",
-      settled: doc.data().settled || false,
-      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-      userId: doc.data().userId,
-      bookId: doc.data().bookId,
-    }));
-    setDebts(loadedDebts);
-
-    // Load Products
-    const prodQuery = query(
-      collection(db, 'products'),
-      where('bookId', '==', book.id),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
-    );
-    const prodSnapshot = await getDocs(prodQuery);
-    const loadedProducts: Product[] = prodSnapshot.docs.map(doc => ({
-      id: doc.id,
-      name: doc.data().name,
-      description: doc.data().description || "",
-      price: doc.data().price,
-      image: doc.data().image || "",
-      category: doc.data().category || "",
-      inStock: doc.data().inStock !== false,
-      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-      userId: doc.data().userId,
-      bookId: doc.data().bookId,
-    }));
-    setProducts(loadedProducts);
-
-    // Load Invoices
-    const invoiceQuery = query(
-      collection(db, 'invoices'),
-      where('bookId', '==', book.id),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
-    );
-    const invoiceSnapshot = await getDocs(invoiceQuery);
-    const loadedInvoices: Invoice[] = invoiceSnapshot.docs.map(doc => ({
-      id: doc.id,
-      number: doc.data().number,
-      customerId: doc.data().customerId,
-      customerName: doc.data().customerName,
-      amount: doc.data().amount,
-      status: doc.data().status,
-      dueDate: doc.data().dueDate,
-      invoiceDate: doc.data().invoiceDate,
-      items: doc.data().items || [],
-      notes: doc.data().notes || "",
-      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-      userId: doc.data().userId,
-      bookId: doc.data().bookId,
-    }));
-    setInvoices(loadedInvoices);
-
-    // Load Documents
-    const docQuery = query(
-      collection(db, 'documents'),
-      where('bookId', '==', book.id),
-      where('userId', '==', userId),
-      orderBy('createdAt', 'desc')
-    );
-    const docSnapshot = await getDocs(docQuery);
-    const loadedDocuments: Document[] = docSnapshot.docs.map(doc => ({
-      id: doc.id,
-      number: doc.data().number,
-      type: doc.data().type,
-      partyName: doc.data().partyName,
-      amount: doc.data().amount,
-      date: doc.data().date,
-      status: doc.data().status,
-      items: doc.data().items || [],
-      dueDate: doc.data().dueDate,
-      notes: doc.data().notes || "",
-      createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
-      userId: doc.data().userId,
-      bookId: doc.data().bookId,
-    }));
-    setDocuments(loadedDocuments);
-    console.log("Documents found:", loadedDocuments.length);
-
+  // NEW: Verify book password for access
+const verifyBookPassword = useCallback(async (bookId: string, password: string) => {
+  try {
+    const bookRef = doc(db, 'books', bookId);
+    const bookSnap = await getDoc(bookRef);
+    
+    if (!bookSnap.exists()) {
+      return { valid: false };
+    }
+    
+    const bookData = bookSnap.data();
+    
+    // Check if password matches
+    if (bookData.accessPassword === password) {
+      // Get the access level from the book's password settings
+      let accessLevel = bookData.passwordAccessLevel || "read";
+      
+      // Owner always gets write access
+      if (bookData.userId === user?.id) {
+        accessLevel = "write";
+      }
+      
+      return { valid: true, accessLevel };
+    }
+    
+    return { valid: false };
   } catch (error) {
-    console.error("Failed to load book data:", error);
+    console.error("Error verifying book password:", error);
+    return { valid: false };
   }
 }, [user]);
+
+  const loadBookData = useCallback(async (book: CashBook) => {
+    const userId = user?.id;
+    
+    if (!userId) {
+      console.log("No user yet, waiting...");
+      return;
+    }
+
+    console.log("Loading data for book:", book.id, "User:", userId);
+
+    try {
+      setTransactions([]);
+      setDebts([]);
+      setProducts([]);
+      setInvoices([]);
+      setDocuments([]);
+
+      // Load Transactions
+      const txQuery = query(
+        collection(db, 'transactions'),
+        where('bookId', '==', book.id),
+        where('userId', '==', userId),
+        orderBy('date', 'desc')
+      );
+      const txSnapshot = await getDocs(txQuery);
+      console.log("Transactions found:", txSnapshot.size);
+      
+      const loadedTransactions: Transaction[] = txSnapshot.docs.map(doc => ({
+        id: doc.id,
+        type: doc.data().type,
+        amount: doc.data().amount,
+        category: doc.data().category,
+        note: doc.data().note || "",
+        date: doc.data().date,
+        paymentMode: doc.data().paymentMode || "cash",
+        attachment: doc.data().attachment || "",
+        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+        userId: doc.data().userId,
+        bookId: doc.data().bookId,
+      }));
+      setTransactions(loadedTransactions);
+
+      // Load Debts
+      const debtQuery = query(
+        collection(db, 'debtors'),
+        where('bookId', '==', book.id),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+      const debtSnapshot = await getDocs(debtQuery);
+      const loadedDebts: Debt[] = debtSnapshot.docs.map(doc => ({
+        id: doc.id,
+        direction: doc.data().direction,
+        name: doc.data().name,
+        amount: doc.data().amount,
+        note: doc.data().note || "",
+        phone: doc.data().phone || "",
+        dueDate: doc.data().dueDate || "",
+        settled: doc.data().settled || false,
+        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+        userId: doc.data().userId,
+        bookId: doc.data().bookId,
+      }));
+      setDebts(loadedDebts);
+
+      // Load Products
+      const prodQuery = query(
+        collection(db, 'products'),
+        where('bookId', '==', book.id),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+      const prodSnapshot = await getDocs(prodQuery);
+      const loadedProducts: Product[] = prodSnapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name,
+        description: doc.data().description || "",
+        price: doc.data().price,
+        image: doc.data().image || "",
+        category: doc.data().category || "",
+        inStock: doc.data().inStock !== false,
+        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+        userId: doc.data().userId,
+        bookId: doc.data().bookId,
+      }));
+      setProducts(loadedProducts);
+
+      // Load Invoices
+      const invoiceQuery = query(
+        collection(db, 'invoices'),
+        where('bookId', '==', book.id),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+      const invoiceSnapshot = await getDocs(invoiceQuery);
+      const loadedInvoices: Invoice[] = invoiceSnapshot.docs.map(doc => ({
+        id: doc.id,
+        number: doc.data().number,
+        customerId: doc.data().customerId,
+        customerName: doc.data().customerName,
+        amount: doc.data().amount,
+        status: doc.data().status,
+        dueDate: doc.data().dueDate,
+        invoiceDate: doc.data().invoiceDate,
+        items: doc.data().items || [],
+        notes: doc.data().notes || "",
+        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+        userId: doc.data().userId,
+        bookId: doc.data().bookId,
+      }));
+      setInvoices(loadedInvoices);
+
+      // Load Documents
+      const docQuery = query(
+        collection(db, 'documents'),
+        where('bookId', '==', book.id),
+        where('userId', '==', userId),
+        orderBy('createdAt', 'desc')
+      );
+      const docSnapshot = await getDocs(docQuery);
+      const loadedDocuments: Document[] = docSnapshot.docs.map(doc => ({
+        id: doc.id,
+        number: doc.data().number,
+        type: doc.data().type,
+        partyName: doc.data().partyName,
+        amount: doc.data().amount,
+        date: doc.data().date,
+        status: doc.data().status,
+        items: doc.data().items || [],
+        dueDate: doc.data().dueDate,
+        notes: doc.data().notes || "",
+        createdAt: doc.data().createdAt?.toDate?.()?.getTime() || Date.now(),
+        userId: doc.data().userId,
+        bookId: doc.data().bookId,
+      }));
+      setDocuments(loadedDocuments);
+      console.log("Documents found:", loadedDocuments.length);
+
+    } catch (error) {
+      console.error("Failed to load book data:", error);
+    }
+  }, [user]);
+
   const addInvoice = useCallback(async (invoice: Omit<Invoice, "id" | "createdAt" | "userId" | "bookId">) => {
     if (!user || !activeBook) throw new Error("No active book or user");
     
@@ -546,107 +631,113 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [loadBookData]);
 
   const loadBooks = useCallback(async () => {
-  const userId = user?.id;
-  
-  console.log("📚 loadBooks called, user:", userId);
-  
-  if (!userId) {
-    console.log("No user found, skipping book load");
-    setIsLoadingBooks(false);
-    setBooks([]);
-    return;
-  }
-  
-  setIsLoadingBooks(true);
-  try {
-    console.log("📚 Loading books for user:", userId);
+    const userId = user?.id;
     
-    const loadedBooks: CashBook[] = [];
+    console.log("📚 loadBooks called, user:", userId);
     
-    // 1. ✅ Load books the user OWNS (from books collection)
-    const ownedBooksQuery = query(
-      collection(db, 'books'),
-      where('userId', '==', userId)
-    );
-    const ownedBooksSnapshot = await getDocs(ownedBooksQuery);
-    console.log("Found", ownedBooksSnapshot.size, "owned books");
+    if (!userId) {
+      console.log("No user found, skipping book load");
+      setIsLoadingBooks(false);
+      setBooks([]);
+      return;
+    }
     
-    ownedBooksSnapshot.forEach(doc => {
-      const bookData = doc.data();
-      loadedBooks.push({
-        id: doc.id,
-        name: bookData.name || "Unnamed Book",
-        description: bookData.description || "",
-        isCloud: true,
-        role: "owner",
-        createdAt: bookData.createdAt?.toDate?.()?.getTime() || Date.now(),
-        userId: bookData.userId,
-        color: bookData.color,
-        icon: bookData.icon,
+    setIsLoadingBooks(true);
+    try {
+      console.log("📚 Loading books for user:", userId);
+      
+      const loadedBooks: CashBook[] = [];
+      
+      // 1. ✅ Load books the user OWNS (from books collection)
+      const ownedBooksQuery = query(
+        collection(db, 'books'),
+        where('userId', '==', userId)
+      );
+      const ownedBooksSnapshot = await getDocs(ownedBooksQuery);
+      console.log("Found", ownedBooksSnapshot.size, "owned books");
+      
+      ownedBooksSnapshot.forEach(doc => {
+        const bookData = doc.data();
+        loadedBooks.push({
+          id: doc.id,
+          name: bookData.name || "Unnamed Book",
+          description: bookData.description || "",
+          isCloud: true,
+          role: "owner",
+          createdAt: bookData.createdAt?.toDate?.()?.getTime() || Date.now(),
+          userId: bookData.userId,
+          color: bookData.color,
+          icon: bookData.icon,
+          accessPassword: bookData.accessPassword,
+          passwordProtected: bookData.passwordProtected || false,
+          passwordAccessLevel: bookData.passwordAccessLevel || "read",
+        });
       });
-    });
-    
-    // 2. ✅ Load books SHARED with the user (from userBooks collection)
-    const userBooksQuery = query(
-      collection(db, 'userBooks'),
-      where('userId', '==', userId)
-    );
-    const userBooksSnapshot = await getDocs(userBooksQuery);
-    console.log("Found", userBooksSnapshot.size, "shared book entries");
-    
-    for (const ubDoc of userBooksSnapshot.docs) {
-      const userBookData = ubDoc.data();
-      const bookId = userBookData.bookId;
       
-      if (!bookId) continue;
+      // 2. ✅ Load books SHARED with the user (from userBooks collection)
+      const userBooksQuery = query(
+        collection(db, 'userBooks'),
+        where('userId', '==', userId)
+      );
+      const userBooksSnapshot = await getDocs(userBooksQuery);
+      console.log("Found", userBooksSnapshot.size, "shared book entries");
       
-      const bookRef = doc(db, 'books', bookId);
-      const bookSnap = await getDoc(bookRef);
-      
-      if (bookSnap.exists()) {
-        const bookData = bookSnap.data();
-        // Check if not already added as owned
-        if (!loadedBooks.some(b => b.id === bookSnap.id)) {
-          loadedBooks.push({
-            id: bookSnap.id,
-            name: bookData.name || "Unnamed Book",
-            description: bookData.description || "",
-            isCloud: true,
-            role: userBookData.role || "viewer",
-            createdAt: bookData.createdAt?.toDate?.()?.getTime() || Date.now(),
-            userId: bookData.userId,
-            color: bookData.color,
-            icon: bookData.icon,
-          });
-          console.log("✅ Loaded shared book:", bookData.name);
+      for (const ubDoc of userBooksSnapshot.docs) {
+        const userBookData = ubDoc.data();
+        const bookId = userBookData.bookId;
+        
+        if (!bookId) continue;
+        
+        const bookRef = doc(db, 'books', bookId);
+        const bookSnap = await getDoc(bookRef);
+        
+        if (bookSnap.exists()) {
+          const bookData = bookSnap.data();
+          // Check if not already added as owned
+          if (!loadedBooks.some(b => b.id === bookSnap.id)) {
+            loadedBooks.push({
+              id: bookSnap.id,
+              name: bookData.name || "Unnamed Book",
+              description: bookData.description || "",
+              isCloud: true,
+              role: userBookData.role || "viewer",
+              createdAt: bookData.createdAt?.toDate?.()?.getTime() || Date.now(),
+              userId: bookData.userId,
+              color: bookData.color,
+              icon: bookData.icon,
+              accessPassword: bookData.accessPassword,
+              passwordProtected: bookData.passwordProtected || false,
+            });
+            console.log("✅ Loaded shared book:", bookData.name);
+          }
         }
       }
-    }
-    
-    console.log("Total books loaded:", loadedBooks.length);
-    setBooks(loadedBooks);
-    
-    if (loadedBooks.length > 0) {
-      const lastActiveBookId = await AsyncStorage.getItem(LAST_ACTIVE_BOOK_KEY);
-      const bookToActivate = lastActiveBookId 
-        ? loadedBooks.find(b => b.id === lastActiveBookId) 
-        : loadedBooks[0];
       
-      if (bookToActivate) {
-        console.log("Activating book:", bookToActivate.name);
-        setActiveBook(bookToActivate);
+      console.log("Total books loaded:", loadedBooks.length);
+      setBooks(loadedBooks);
+      
+      if (loadedBooks.length > 0) {
+        const lastActiveBookId = await AsyncStorage.getItem(LAST_ACTIVE_BOOK_KEY);
+        const bookToActivate = lastActiveBookId 
+          ? loadedBooks.find(b => b.id === lastActiveBookId) 
+          : loadedBooks[0];
+        
+        if (bookToActivate) {
+          console.log("Activating book:", bookToActivate.name);
+          setActiveBook(bookToActivate);
+        }
+      } else {
+        console.log("No books found for user");
+        setActiveBook(null);
       }
-    } else {
-      console.log("No books found for user");
-      setActiveBook(null);
+      
+    } catch (error) {
+      console.error("Failed to load books:", error);
+    } finally {
+      setIsLoadingBooks(false);
     }
-    
-  } catch (error) {
-    console.error("Failed to load books:", error);
-  } finally {
-    setIsLoadingBooks(false);
-  }
-}, [user, setActiveBook]);
+  }, [user, setActiveBook]);
+
   useEffect(() => {
     if (user && activeBook) {
       console.log("User became available, reloading data for active book");
@@ -658,26 +749,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadBooks();
   }, [loadBooks]);
 
-  const createBook = useCallback(async (name: string, description: string, isCloud: boolean, icon?: string) => {
+const createBook = useCallback(async (name: string, description: string, isCloud: boolean, icon?: string, accessPassword?: string, defaultAccess?: "read" | "write") => {
     if (!user) {
       console.error("Cannot create book: User not authenticated");
       throw new Error("You must be logged in to create a book");
     }
     
     const newBook: Omit<CashBook, "id"> = {
-      name,
-      description,
-      isCloud: true,
-      role: "owner",
-      createdAt: Date.now(),
-      userId: user.id,
-      color: "#" + Math.floor(Math.random()*16777215).toString(16),
-      icon: icon || "📒",
-    };
+  name,
+  description,
+  isCloud: true,
+  role: "owner",
+  createdAt: Date.now(),
+  userId: user.id,
+  color: "#" + Math.floor(Math.random()*16777215).toString(16),
+  icon: icon || "📒",
+  accessPassword: accessPassword,
+  passwordProtected: !!accessPassword,
+  defaultAccess: defaultAccess || "read",  // ← ADD THIS LINE
+};
 
     const docRef = await addDoc(collection(db, 'books'), {
       ...newBook,
       createdAt: Timestamp.now(),
+      accessPassword: accessPassword || null,
+      passwordProtected: !!accessPassword,
+      passwordAccessLevel: defaultAccess || "read",
     });
     
     const createdBook = { ...newBook, id: docRef.id };
@@ -722,7 +819,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, activeBook, setActiveBook]);
 
-  const updateBook = useCallback(async (id: string, data: { name?: string; description?: string; icon?: string }) => {
+  const updateBook = useCallback(async (id: string, data: { name?: string; description?: string; icon?: string; accessPassword?: string; passwordProtected?: boolean }) => {
     if (!user) return;
     
     const bookRef = doc(db, 'books', id);
@@ -738,12 +835,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [user, activeBook]);
 
   const refreshBooks = useCallback(async () => {
-  console.log("🔄 Manually refreshing books...");
-  await loadBooks();
-  if (activeBook) {
-    await loadBookData(activeBook);
-  }
-}, [loadBooks, loadBookData, activeBook]);
+    console.log("🔄 Manually refreshing books...");
+    await loadBooks();
+    if (activeBook) {
+      await loadBookData(activeBook);
+    }
+  }, [loadBooks, loadBookData, activeBook]);
 
   const addTransaction = useCallback(async (t: Omit<Transaction, "id" | "createdAt" | "userId" | "bookId">) => {
     if (!user) throw new Error("User not authenticated");
@@ -956,6 +1053,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       totalBalanceAllBooks,
       totalIncomeAllBooks,
       totalExpenseAllBooks,
+      setBookPassword,
+      removeBookPassword,
+      verifyBookPassword,
     }),
     [
       books,
@@ -998,6 +1098,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       totalBalanceAllBooks,
       totalIncomeAllBooks,
       totalExpenseAllBooks,
+      setBookPassword,
+      removeBookPassword,
+      verifyBookPassword,
     ]
   );
 
